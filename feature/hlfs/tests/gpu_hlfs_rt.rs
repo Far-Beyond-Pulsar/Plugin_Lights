@@ -50,7 +50,7 @@ fn blocker(f: &mut Fixture, x: f32) {
         .build(
             &mut encoder,
             &[TlasInstanceInput {
-                mesh_id: 1,
+                geometry_id: 1,
                 transform: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
             }],
             &f.scene.blas_manager,
@@ -434,7 +434,7 @@ fn receiver_plane(f: &mut Fixture, z: f32) {
         .build(
             &mut encoder,
             &[TlasInstanceInput {
-                mesh_id: 1,
+                geometry_id: 1,
                 transform: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
             }],
             &f.scene.blas_manager,
@@ -742,7 +742,7 @@ fn benchmark_rt_resolution_and_acceleration() {
                 let cpu_lights_ms = cpu.elapsed().as_secs_f64() * 1000.0;
                 let instances: Vec<_> = (0..instance_count)
                     .map(|i| TlasInstanceInput {
-                        mesh_id: 1,
+                        geometry_id: 1,
                         transform: [
                             1.0,
                             0.0,
@@ -1584,7 +1584,7 @@ fn colored_thin_sheets_multiply_and_opaque_blockers_still_occlude() {
             ] {
                 let instances: Vec<_> = (0..rows.len())
                     .map(|i| TlasInstanceInput {
-                        mesh_id: 1,
+                        geometry_id: 1,
                         transform: [
                             1.0, 0.0, 0.0, i as f32, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
                         ],

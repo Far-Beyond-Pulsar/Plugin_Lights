@@ -54,7 +54,7 @@ impl From<ReflectionCaptureRow> for crate::GpuReflectionCapture {
     }
 }
 
-/// Fixed capacity for the `"reflection_captures"` SceneDB buffer --
+/// Fixed capacity for the `"environment_probes"` SceneDB buffer --
 /// `deferred_lighting.wgsl` already clamped its old CPU-driven count to this
 /// exact number (`min(globals.reflection_capture_count, 64u)`), so keeping
 /// it at 64 changes nothing about the shader's own worst-case cost, only

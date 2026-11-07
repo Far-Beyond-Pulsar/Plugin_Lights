@@ -7,7 +7,7 @@
 //! its authored settings, writes no scene rows and is reported unfinished
 //! (Pulsar-Native#1035, Phase 4; tracked in Pulsar-Native#1054). `helio_pass_deferred_light::
 //! ReflectionCaptureComponent` remains the only schema of the
-//! `"reflection_captures"` buffer.
+//! `"environment_probes"` buffer.
 
 use engine_class_derive::{engine_class, register_world_component};
 use pulsar_reflection::Reflectable;

@@ -52,6 +52,9 @@ impl Feature for ShadowViewsFeature {
     }
 
     fn register(&self, registrar: &mut FeatureRegistrar<'_>) {
+        // Hot reload swaps the matrix pass with every pass that holds the
+        // dirty flags it creates (a caster drawer declares the same handle).
+        registrar.swap_shares::<LightDirtyFlags, ShadowMatrixPass>();
         registrar.node(
             pass_node(
                 "shadow_matrix",
