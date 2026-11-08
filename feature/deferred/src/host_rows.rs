@@ -8,7 +8,7 @@ use pulsar_scenedb_derive::SceneStore;
 
 #[derive(SceneStore, bytemuck::Pod, bytemuck::Zeroable, Clone, Copy, Debug, PartialEq)]
 #[repr(C)]
-#[gpu(layout = packed, buffer = "reflection_captures")]
+#[gpu(layout = packed, buffer = "environment_probes")]
 pub struct ReflectionCaptureComponent {
     #[gpu]
     pub position_radius: [f32; 4],
@@ -25,7 +25,7 @@ pub struct ReflectionCaptureComponent {
     #[gpu]
     pub brightness: f32,
 }
-same_layout!(ReflectionCaptureComponent, crate::ReflectionCaptureRow, crate::REFLECTION_CAPTURES, "reflection_captures"; position_radius, extents_transition, world_to_local, cubemap_index, shape, mobility, brightness);
+same_layout!(ReflectionCaptureComponent, crate::ReflectionCaptureRow, crate::REFLECTION_CAPTURES, "environment_probes"; position_radius, extents_transition, world_to_local, cubemap_index, shape, mobility, brightness);
 
 impl From<crate::GpuReflectionCapture> for ReflectionCaptureComponent {
     fn from(value: crate::GpuReflectionCapture) -> Self {

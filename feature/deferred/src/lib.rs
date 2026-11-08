@@ -133,7 +133,7 @@ pub struct DeferredLightPass {
     fallback_env_sampler: wgpu::Sampler,
     /// 1×1 black Rgba16Float: nothing adds transmission.
     fallback_transmission_view: wgpu::TextureView,
-    /// Bound in place of `"reflection_captures"` when no
+    /// Bound in place of `"environment_probes"` when no
     /// `ReflectionCaptureRow` has ever been inserted -- SceneDB is the
     /// only source this pass reads. `reflection_capture_count` is 0
     /// whenever this is bound, so it's never dereferenced.
