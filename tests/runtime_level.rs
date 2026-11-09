@@ -4,6 +4,9 @@
 //! two directional lights loads with both. (Moved from
 //! `engine_backend::scene::runtime_level`'s tests with the light component.)
 
+// The plugin as a game links it: its root, with every registration.
+use lights_plugin as _;
+
 use engine_backend::scene::{RuntimeLevel, RuntimeLevelError, SceneWorldExt};
 use lights_component::LightComponent;
 use pulsar_scene::format::SceneFile;
@@ -62,11 +65,6 @@ const SAMPLE_LEVEL: &str = r#"{
 /// The object's attached component records, in order.
 fn records(world: &World, id: &str) -> Vec<pulsar_scene_model::ComponentInstance> {
     pulsar_world_registry::component_records(world, world.entity_for(id).unwrap())
-}
-
-fn sample_level() -> RuntimeLevel {
-    let file: SceneFile = serde_json::from_str(SAMPLE_LEVEL).expect("sample parses");
-    RuntimeLevel::from_scene_file(file).expect("sample hydrates")
 }
 
 fn level_with_sun_components(components_section: Value, instances: Option<Value>) -> SceneFile {

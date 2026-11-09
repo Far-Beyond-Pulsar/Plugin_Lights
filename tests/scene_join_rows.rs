@@ -1,6 +1,12 @@
 //! The engine's object joins with the lights' installed: the light list
 //! follows the authored light instances and their owners (moved from
 //! engine_backend's scene_join_rows with the light component).
+
+// The plugin as a game links it: its root, with every registration.
+use lights_plugin as _;
+// The meshes as a game links them: the mesh these tests light.
+use meshes_plugin as _;
+
 use std::sync::Arc;
 
 use engine_backend::scene::{SceneWorldExt, SpawnObject, Transform, Visibility, attachments};

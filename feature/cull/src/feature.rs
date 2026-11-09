@@ -5,7 +5,11 @@
 //! own lights, so under it this builds nothing.
 
 use helio_feature_api::{pass_node, Feature, FeatureRegistrar};
-use helio_frame_api::lighting::{lighting_model, LightingModel};
+use helio_frame_api::lighting::{
+    lighting_model, model, InputsOrder, LightingModel, RegisterLightingModel, Shading,
+    SpecularLayers,
+};
+use helio_light_api::LIGHT_FIELD_MODEL;
 use helio_frame_api::{FrameNode, Slot};
 
 use crate::LightCullPass;
@@ -21,6 +25,15 @@ impl Feature for LightCullFeature {
     fn register(&self, registrar: &mut FeatureRegistrar<'_>) {
         // What shader hot reload may swap without rebuilding the graph.
         registrar.swappable::<LightCullPass>();
+        // The forward model: the drawers light what they draw from the tile
+        // lists this binning writes (the lights' forward function), so nothing
+        // resolves a G-buffer, no screen-space layers apply and the frame's
+        // inputs run after the phase that lit the scene.
+        registrar.lighting_model(
+            LightingModel::new(model::FORWARD, Shading::Forward)
+                .with_specular_layers(SpecularLayers::None)
+                .with_inputs_order(InputsOrder::AfterLighting),
+        );
         // The directional light of a light list a host wrote itself (the
         // lights' join records its own): what the sky, GI and media read.
         registrar.scene_derivation(crate::DirectionalLightsDerivation::FACTORY);
@@ -31,7 +44,7 @@ impl Feature for LightCullFeature {
                 "Passes: Scene Prep",
                 "Bins the scene's lights into screen tiles.",
                 |build| {
-                    if lighting_model(build.env) == Some(LightingModel::LightField) {
+                    if lighting_model(build.env) == Some(LIGHT_FIELD_MODEL) {
                         return Ok(());
                     }
                     let (iw, ih) = build.env.internal_size();

@@ -27,12 +27,14 @@
 
 pub mod binning;
 mod light;
+mod models;
 mod settings;
 pub mod shadows;
 pub mod sun_occlusion;
 
 pub use binning::*;
 pub use light::*;
+pub use models::LIGHT_FIELD_MODEL;
 pub use settings::SHADOWS;
 pub use shadows::*;
 pub use sun_occlusion::*;

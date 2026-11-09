@@ -3,6 +3,9 @@
 //! a nearer object occludes it. (Moved from engine_backend's interaction tests
 //! with the icon: picking names no kind.)
 
+// The plugin as a game links it: its root, with every registration.
+use lights_plugin as _;
+
 use engine_backend::scene::{SceneWorldExt, SpawnObject, Transform, Visibility};
 use engine_backend::subsystems::render::helio_renderer::SceneInteraction;
 use glam::{DVec3, Vec2, Vec3};
@@ -16,6 +19,7 @@ struct TestBox;
 inventory::submit! {
     engine_backend::subsystems::render::helio_renderer::ContentGeometryRegistration {
         origin: pulsar_plugins::origin!(),
+        name: "test_box",
         local_bounds: |world, object| {
             world
                 .get::<TestBox>(object)

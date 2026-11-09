@@ -1,36 +1,32 @@
-//! Lights in the level editor: the Create menu's lights, the environment
-//! mixer's lights and reflection captures, and its starter setups (a sky
-//! and a tuned sun), registered through the level editor's extension points
-//! (`ui_level_editor::extend`). Every add is one undoable command through
-//! the editor's commands; the components are this plugin's.
+//! Lights in the level editor: the hierarchy icon, the Create menu's
+//! lights, the environment mixer's lights and reflection captures, and its
+//! starter setups (a sky and a tuned sun), which the plugin's root registers
+//! through the level editor's extension points (`ui_level_editor::extend`).
+//! Every add is one undoable command through the editor's commands; the
+//! components are this plugin's.
 
 use engine_backend::scene::SceneWorldExt as _;
 use lights_component::{LightComponent, LightType as Shape, ReflectionCaptureComponent};
 use pulsar_scenedb::World;
 use ui_level_editor::LevelEditorState;
 use ui_level_editor::commands::{CommandResult, SceneCommand, TypedComponent, execute_command};
-use ui_level_editor::extend::{
-    CreateEntry, EnvironmentListing, EnvironmentPreset, add_object, create,
-};
+use ui_level_editor::extend::{add_object, create};
 use ui_level_editor::scene_edit::{ObjectType, Transform};
 
 // ── Hierarchy ───────────────────────────────────────────────────────────────
 
-// An object holding a light shows as one.
-inventory::submit! {
-    ui_level_editor::extend::ObjectIconRegistration {
-        origin: pulsar_plugins::origin!(),
-        order: 100,
-        icon: |world, object| {
-            engine_backend::scene::attachments::instances(world, object)
-                .iter()
-                .any(|instance| world.get::<LightComponent>(*instance).is_some())
-                .then_some((
-                    ui::IconName::LightBulb,
-                    ui::hierarchical_tree::tree_colors::SPECIAL_YELLOW,
-                ))
-        },
-    }
+/// The hierarchy's icon for an object holding a light.
+pub fn object_icon(
+    world: &World,
+    object: pulsar_scenedb::Entity,
+) -> Option<(ui::IconName, gpui::Hsla)> {
+    engine_backend::scene::attachments::instances(world, object)
+        .iter()
+        .any(|instance| world.get::<LightComponent>(*instance).is_some())
+        .then_some((
+            ui::IconName::LightBulb,
+            ui::hierarchical_tree::tree_colors::SPECIAL_YELLOW,
+        ))
 }
 
 // ── Create menu ─────────────────────────────────────────────────────────────
@@ -49,50 +45,39 @@ fn menu_light(state: &mut LevelEditorState, name: &str, shape: Shape) -> Command
     )
 }
 
-inventory::submit! {
-    CreateEntry {
-        origin: pulsar_plugins::origin!(),
+/// One of the Create menu's lights.
+pub struct MenuLight {
+    /// The entry's stable id.
+    pub id: &'static str,
+    /// The Create menu's text.
+    pub menu_label: fn() -> String,
+    /// Its place in the menu (lights are the 100s).
+    pub order: i32,
+    /// Add it as one undoable command.
+    pub create: fn(&mut LevelEditorState) -> CommandResult,
+}
+
+/// The Create menu's lights.
+pub const MENU_LIGHTS: [MenuLight; 3] = [
+    MenuLight {
         id: "light_point",
-        menu_label: Some(|| rust_i18n::t!("LevelEditor.Create.PointLight").to_string()),
-        environment_label: None,
-        quick_add: None,
-        offered: None,
+        menu_label: || rust_i18n::t!("LevelEditor.Create.PointLight").to_string(),
         order: 100,
         create: |state| menu_light(state, "Point Light", Shape::Point),
-    }
-}
-
-inventory::submit! {
-    CreateEntry {
-        origin: pulsar_plugins::origin!(),
+    },
+    MenuLight {
         id: "light_spot",
-        menu_label: Some(|| rust_i18n::t!("LevelEditor.Create.SpotLight").to_string()),
-        environment_label: None,
-        quick_add: None,
-        offered: None,
+        menu_label: || rust_i18n::t!("LevelEditor.Create.SpotLight").to_string(),
         order: 110,
         create: |state| menu_light(state, "Spot Light", Shape::Spot),
-    }
-}
-
-inventory::submit! {
-    CreateEntry {
-        origin: pulsar_plugins::origin!(),
+    },
+    MenuLight {
         id: "light_directional",
-        menu_label: Some(|| rust_i18n::t!("LevelEditor.Create.DirectionalLight").to_string()),
-        environment_label: None,
-        quick_add: None,
-        offered: None,
+        menu_label: || rust_i18n::t!("LevelEditor.Create.DirectionalLight").to_string(),
         order: 120,
-        create: |state| {
-            menu_light(
-                state,
-                "Directional Light",
-                Shape::Directional,
-            )
-        },
-    }
-}
+        create: |state| menu_light(state, "Directional Light", Shape::Directional),
+    },
+];
 
 // ── Environment mixer ───────────────────────────────────────────────────────
 
@@ -114,103 +99,42 @@ fn environment_light(state: &mut LevelEditorState, name: &str, shape: Shape) -> 
 }
 
 /// The level has no sun yet (several directional lights are allowed; the
-/// Create menu offers the first).
-fn no_sun(world: &World) -> bool {
+/// mixer offers the first).
+pub fn no_sun(world: &World) -> bool {
     lights_component::directional_lights(world).is_empty()
 }
 
-inventory::submit! {
-    CreateEntry {
-        origin: pulsar_plugins::origin!(),
-        id: "environment_point_light",
-        menu_label: None,
-        environment_label: Some("Point Light"),
-        quick_add: None,
-        offered: None,
-        order: 400,
-        create: |state| {
-            add_object(
-                state,
-                "Point Light",
-                ObjectType::Empty,
-                Transform::default(),
-                vec![TypedComponent::new(LightComponent::default())],
-            )
-        },
-    }
+/// The mixer's point light: a default light.
+pub fn add_environment_point_light(state: &mut LevelEditorState) -> CommandResult {
+    add_object(
+        state,
+        "Point Light",
+        ObjectType::Empty,
+        Transform::default(),
+        vec![TypedComponent::new(LightComponent::default())],
+    )
 }
 
-inventory::submit! {
-    CreateEntry {
-        origin: pulsar_plugins::origin!(),
-        id: "environment_spot_light",
-        menu_label: None,
-        environment_label: Some("Spot Light"),
-        quick_add: None,
-        offered: None,
-        order: 401,
-        create: |state| environment_light(state, "Spot Light", Shape::Spot),
-    }
+/// The mixer's spot light.
+pub fn add_environment_spot_light(state: &mut LevelEditorState) -> CommandResult {
+    environment_light(state, "Spot Light", Shape::Spot)
 }
 
-inventory::submit! {
-    CreateEntry {
-        origin: pulsar_plugins::origin!(),
-        id: "environment_directional_light",
-        menu_label: None,
-        environment_label: Some("Directional Light"),
-        quick_add: None,
-        offered: Some(no_sun),
-        order: 402,
-        create: |state| {
-            environment_light(
-                state,
-                "Directional Light",
-                Shape::Directional,
-            )
-        },
-    }
+/// The mixer's directional light (offered while the level has no sun,
+/// [`no_sun`]).
+pub fn add_environment_directional_light(state: &mut LevelEditorState) -> CommandResult {
+    environment_light(state, "Directional Light", Shape::Directional)
 }
 
-inventory::submit! {
-    CreateEntry {
-        origin: pulsar_plugins::origin!(),
-        id: "environment_reflection_capture",
-        menu_label: None,
-        environment_label: Some("Reflection Capture"),
-        quick_add: None,
-        offered: None,
-        order: 440,
-        create: |state| {
-            add_object(
-                state,
-                "Reflection Capture",
-                ObjectType::Empty,
-                Transform::default(),
-                vec![TypedComponent::new(ReflectionCaptureComponent::default())],
-            )
-        },
-    }
-}
-
-inventory::submit! {
-    EnvironmentListing {
-        origin: pulsar_plugins::origin!(),
-        class_name: "LightComponent",
-        label: "Light",
-        order: 0,
-        create_entry: Some("environment_point_light"),
-    }
-}
-
-inventory::submit! {
-    EnvironmentListing {
-        origin: pulsar_plugins::origin!(),
-        class_name: "ReflectionCaptureComponent",
-        label: "Reflection Capture",
-        order: 40,
-        create_entry: Some("environment_reflection_capture"),
-    }
+/// The mixer's reflection capture: a default capture.
+pub fn add_reflection_capture(state: &mut LevelEditorState) -> CommandResult {
+    add_object(
+        state,
+        "Reflection Capture",
+        ObjectType::Empty,
+        Transform::default(),
+        vec![TypedComponent::new(ReflectionCaptureComponent::default())],
+    )
 }
 
 // ── Starter setups ──────────────────────────────────────────────────────────
@@ -348,20 +272,19 @@ fn apply_sun(state: &mut LevelEditorState, sun: Sun) -> CommandResult {
         }
     };
 
-    let mut set =
-        |state: &mut LevelEditorState, prop: &str, value: Box<dyn std::any::Any + Send>| {
-            execute_command(
-                state,
-                SceneCommand::SetComponentProperty {
-                    id: object_id.clone(),
-                    class_name: "LightComponent".into(),
-                    component_index,
-                    prop_name: prop.into(),
-                    value,
-                },
-            )
-            .changed
-        };
+    let set = |state: &mut LevelEditorState, prop: &str, value: Box<dyn std::any::Any + Send>| {
+        execute_command(
+            state,
+            SceneCommand::SetComponentProperty {
+                id: object_id.clone(),
+                class_name: "LightComponent".into(),
+                component_index,
+                prop_name: prop.into(),
+                value,
+            },
+        )
+        .changed
+    };
     changed |= set(state, "color.color", Box::new(sun.color));
     changed |= set(state, "intensity.intensity", Box::new(sun.intensity));
     // The light's own direction (the rig's lights share the sky object's
@@ -375,59 +298,38 @@ fn apply_sun(state: &mut LevelEditorState, sun: Sun) -> CommandResult {
     }
 }
 
-inventory::submit! {
-    EnvironmentPreset {
-        origin: pulsar_plugins::origin!(),
-        id: "clear_day",
-        label: "Clear Day",
-        order: 0,
-        apply: |state| {
-            apply_sun(
-                state,
-                Sun {
-                    color: [1.0, 0.96, 0.88, 1.0],
-                    intensity: 2.0,
-                    rotation: [35.0, 25.0, 0.0],
-                },
-            )
+/// The clear-day starter setup: the sky rig with a high, warm-white sun.
+pub fn apply_clear_day(state: &mut LevelEditorState) -> CommandResult {
+    apply_sun(
+        state,
+        Sun {
+            color: [1.0, 0.96, 0.88, 1.0],
+            intensity: 2.0,
+            rotation: [35.0, 25.0, 0.0],
         },
-    }
+    )
 }
 
-inventory::submit! {
-    EnvironmentPreset {
-        origin: pulsar_plugins::origin!(),
-        id: "golden_hour",
-        label: "Golden Hour",
-        order: 10,
-        apply: |state| {
-            apply_sun(
-                state,
-                Sun {
-                    color: [1.0, 0.58, 0.32, 1.0],
-                    intensity: 2.0,
-                    rotation: [8.0, 285.0, 0.0],
-                },
-            )
+/// The golden-hour starter setup: the sky rig with a low, orange sun.
+pub fn apply_golden_hour(state: &mut LevelEditorState) -> CommandResult {
+    apply_sun(
+        state,
+        Sun {
+            color: [1.0, 0.58, 0.32, 1.0],
+            intensity: 2.0,
+            rotation: [8.0, 285.0, 0.0],
         },
-    }
+    )
 }
 
-inventory::submit! {
-    EnvironmentPreset {
-        origin: pulsar_plugins::origin!(),
-        id: "overcast",
-        label: "Overcast",
-        order: 20,
-        apply: |state| {
-            apply_sun(
-                state,
-                Sun {
-                    color: [0.72, 0.82, 1.0, 1.0],
-                    intensity: 2.0,
-                    rotation: [55.0, 20.0, 0.0],
-                },
-            )
+/// The overcast starter setup: the sky rig with a steep, cool sun.
+pub fn apply_overcast(state: &mut LevelEditorState) -> CommandResult {
+    apply_sun(
+        state,
+        Sun {
+            color: [0.72, 0.82, 1.0, 1.0],
+            intensity: 2.0,
+            rotation: [55.0, 20.0, 0.0],
         },
-    }
+    )
 }

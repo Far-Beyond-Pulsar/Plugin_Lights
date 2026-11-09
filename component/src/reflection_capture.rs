@@ -9,7 +9,7 @@
 //! ReflectionCaptureComponent` remains the only schema of the
 //! `"environment_probes"` buffer.
 
-use engine_class_derive::{engine_class, register_world_component};
+use engine_class_derive::{engine_class, world_component};
 use pulsar_reflection::Reflectable;
 use serde::{Deserialize, Serialize};
 
@@ -90,7 +90,8 @@ impl Default for ReflectionCaptureComponent {
     }
 }
 
-#[register_world_component]
+// The plugin's root crate registers the class.
+#[world_component]
 impl ReflectionCaptureComponent {}
 
 // Reported unfinished (Pulsar-Native#1035, Phase 4; tracked in #1054): the
@@ -100,16 +101,3 @@ pulsar_world_registry::declare_unfinished_component!(
     "a capture contributes only with a baked cubemap, and this engine runs no probe baker",
     "https://github.com/Far-Beyond-Pulsar/Pulsar-Native/issues/1054",
 );
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn registers_under_its_class_name() {
-        assert_eq!(
-            pulsar_world_registry::component_id_for_class(REFLECTION_CAPTURE_CLASS_NAME),
-            Some(pulsar_scenedb::component_id::<ReflectionCaptureComponent>())
-        );
-    }
-}

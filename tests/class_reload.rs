@@ -6,6 +6,9 @@
 //!
 //! One test, because the host bus is process-wide.
 
+// The plugin as a game links it: its root, with every registration.
+use lights_plugin as _;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
