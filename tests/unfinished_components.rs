@@ -2,6 +2,9 @@
 //! declares a reason and its tracking issue, which the properties card shows
 //! and the first attach logs.
 
+// The plugin as a game links it: its root, with every registration.
+use lights_plugin as _;
+
 // Link the components into this test binary.
 #[allow(unused_imports)]
 use lights_component::ReflectionCaptureComponent as _;

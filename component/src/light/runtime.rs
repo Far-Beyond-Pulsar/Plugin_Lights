@@ -1,4 +1,4 @@
-use engine_class_derive::register_world_component;
+use engine_class_derive::world_component;
 
 use super::LightComponent;
 
@@ -22,8 +22,9 @@ fn decode_light_component(data: &serde_json::Value) -> Result<LightComponent, St
 
 // Helio holds no light actor: the light's derived `LightSourceRow` follows
 // every write through SceneDB, removing the component clears it, and a
-// disabled light's row says so (`general.enabled` is part of it).
-#[register_world_component(decode = decode_light_component)]
+// disabled light's row says so (`general.enabled` is part of it). The
+// plugin's root crate registers the class.
+#[world_component(decode = decode_light_component)]
 impl LightComponent {}
 
 #[cfg(test)]

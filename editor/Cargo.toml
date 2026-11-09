@@ -1,26 +1,19 @@
 [package]
-name = "lights_plugin"
+name = "lights_editor"
 version = "0.1.0"
 edition = "2024"
-description = "Lights (pulsar.lights): the editor plugin -- its metadata, over the plugin's component crate"
+description = "Lights (pulsar.lights): the editor crate -- the level editor's light icon, Create menu lights, environment mixer entries and starter setups, over the plugin's component crate"
 
 [lib]
-name = "lights_plugin"
-
-[features]
-# Statically linked hosts (the editor) use the Rust API; the component crate
-# (with everything it registers) comes with this crate.
-builtin = []
+name = "lights_editor"
 
 [dependencies]
 lights_component = { workspace = true }
-plugin_editor_api = { workspace = true }
-# The level editor UI: registrations through its extension points
-# (`ui_level_editor::extend`), each naming its origin.
+# The level editor UI the root registers through its extension points
+# (`ui_level_editor::extend`).
 ui_level_editor = { workspace = true }
 ui = { workspace = true }
-inventory = { workspace = true }
-pulsar_plugins = { workspace = true }
+gpui-ce = { workspace = true }
 rust-i18n = { workspace = true }
 engine_backend = { workspace = true }
 pulsar_scenedb = { workspace = true }
