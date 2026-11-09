@@ -19,8 +19,7 @@ gpu = []
 # The directional light's local direction (`advanced.rotation_offset`).
 glam = { workspace = true }
 engine_class_derive = { workspace = true }
-pulsar_reflection = { workspace = true, features = ["prims-gpui"] }
-gpui-ce = { workspace = true }
+pulsar_reflection = { workspace = true }
 pulsar_scenedb = { workspace = true }
 pulsar_scenedb_derive = { workspace = true }
 pulsar_world_registry = { workspace = true }

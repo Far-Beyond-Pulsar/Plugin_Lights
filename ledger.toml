@@ -1,0 +1,263 @@
+# The lights plugin's rows of the SceneDB closure ledger (Pulsar-Native#1035):
+# its classes, GPU schemas, buffers, pass crates and call sites. A plugin owns
+# the rows of what it ships (Pulsar-Native#1606); `cargo test -p scene_inventory`
+# in a Pulsar-Native checkout recomputes every fact column, checks the human
+# columns, and fails on a missing, stale or misplaced row. The columns are
+# described in Pulsar-Native's crates/core/scene_inventory/ledger.toml.
+
+# ── GPU-bearing schemas ─────────────────────────────────────────
+
+[[schema]]
+type = "LightComponent"
+path = "lights_component::light::component::LightComponent"
+buffers = ["scene_lights"]
+clears_on_remove = true
+releases_var_len = false
+registered = true
+writer = "none in Pulsar: the scene join publishes `scene_lights` rows of this layout from LightSourceRow and the owner transform"
+owner = "lights_component::light::component"
+disposition = "replaced for Pulsar (Phase 2): lights are joined on the GPU; the component remains a Helio demo type (Phase 4)"
+target_contract = "Phase 2; 03-gpu-reflection-and-rendering.md"
+test = "plugins/installed/tests/render_acceptance.rs"
+status = "verified"
+
+[[schema]]
+type = "LightComponentGpuMirror"
+path = "lights_component::light::component::LightComponentGpuMirror"
+buffers = []
+clears_on_remove = true
+releases_var_len = false
+registered = false
+writer = "none: the generated companion uploads a GPU row only for an #[engine_class(gpu_rows)] class (Phase 4); no engine class opts in"
+owner = "lights_component::light::component"
+disposition = "keep as a CPU mapping type (LightComponent's derived LightSourceRow is built from its mirror); nothing is uploaded"
+target_contract = "Phase 4; 03-gpu-reflection-and-rendering.md"
+test = "crates/core/engine_class_derive/tests/gpu_mirror_derive.rs (without_gpu_rows_the_companion_uploads_nothing)"
+status = "verified"
+
+[[schema]]
+type = "LightSourceRow"
+path = "lights_component::light::source_row::LightSourceRow"
+buffers = ["light_sources"]
+clears_on_remove = true
+releases_var_len = false
+registered = true
+writer = "LightComponent's second GPU registration (to_helio_gpu_light of the authored value, enabled flag in the padding word), on every insert, write, removal and replay"
+owner = "lights_component::light::source_row"
+disposition = "keep: the scene join's light input (Phase 2)"
+target_contract = "Phase 2; 03-gpu-reflection-and-rendering.md"
+test = "plugins/installed/tests/render_acceptance.rs"
+status = "verified"
+
+[[schema]]
+type = "AttenuationLightPropsGpuMirror"
+path = "lights_component::light::sub_props::attenuation::AttenuationLightPropsGpuMirror"
+buffers = []
+clears_on_remove = true
+releases_var_len = false
+registered = false
+writer = "none: the generated companion uploads a GPU row only for an #[engine_class(gpu_rows)] class (Phase 4); no engine class opts in"
+owner = "lights_component::light::sub_props::attenuation"
+disposition = "keep as a CPU mapping type (LightComponent's derived LightSourceRow is built from its mirror); nothing is uploaded"
+target_contract = "Phase 2; 03-gpu-reflection-and-rendering.md"
+test = "crates/core/engine_class_derive/tests/gpu_mirror_derive.rs (without_gpu_rows_the_companion_uploads_nothing)"
+status = "verified"
+
+[[schema]]
+type = "ColorLightPropsGpuMirror"
+path = "lights_component::light::sub_props::color::ColorLightPropsGpuMirror"
+buffers = []
+clears_on_remove = true
+releases_var_len = false
+registered = false
+writer = "none: the generated companion uploads a GPU row only for an #[engine_class(gpu_rows)] class (Phase 4); no engine class opts in"
+owner = "lights_component::light::sub_props::color"
+disposition = "keep as a CPU mapping type (LightComponent's derived LightSourceRow is built from its mirror); nothing is uploaded"
+target_contract = "Phase 2; 03-gpu-reflection-and-rendering.md"
+test = "crates/core/engine_class_derive/tests/gpu_mirror_derive.rs (without_gpu_rows_the_companion_uploads_nothing)"
+status = "verified"
+
+[[schema]]
+type = "GeneralLightPropsGpuMirror"
+path = "lights_component::light::sub_props::general::GeneralLightPropsGpuMirror"
+buffers = []
+clears_on_remove = true
+releases_var_len = false
+registered = false
+writer = "none: the generated companion uploads a GPU row only for an #[engine_class(gpu_rows)] class (Phase 4); no engine class opts in"
+owner = "lights_component::light::sub_props::general"
+disposition = "keep as a CPU mapping type (LightComponent's derived LightSourceRow is built from its mirror); nothing is uploaded"
+target_contract = "Phase 2; 03-gpu-reflection-and-rendering.md"
+test = "crates/core/engine_class_derive/tests/gpu_mirror_derive.rs (without_gpu_rows_the_companion_uploads_nothing)"
+status = "verified"
+
+[[schema]]
+type = "IntensityLightPropsGpuMirror"
+path = "lights_component::light::sub_props::intensity::IntensityLightPropsGpuMirror"
+buffers = []
+clears_on_remove = true
+releases_var_len = false
+registered = false
+writer = "none: the generated companion uploads a GPU row only for an #[engine_class(gpu_rows)] class (Phase 4); no engine class opts in"
+owner = "lights_component::light::sub_props::intensity"
+disposition = "keep as a CPU mapping type (LightComponent's derived LightSourceRow is built from its mirror); nothing is uploaded"
+target_contract = "Phase 2; 03-gpu-reflection-and-rendering.md"
+test = "crates/core/engine_class_derive/tests/gpu_mirror_derive.rs (without_gpu_rows_the_companion_uploads_nothing)"
+status = "verified"
+
+[[schema]]
+type = "ShadowLightPropsGpuMirror"
+path = "lights_component::light::sub_props::shadows::ShadowLightPropsGpuMirror"
+buffers = []
+clears_on_remove = true
+releases_var_len = false
+registered = false
+writer = "none: the generated companion uploads a GPU row only for an #[engine_class(gpu_rows)] class (Phase 4); no engine class opts in"
+owner = "lights_component::light::sub_props::shadows"
+disposition = "keep as a CPU mapping type (LightComponent's derived LightSourceRow is built from its mirror); nothing is uploaded"
+target_contract = "Phase 2; 03-gpu-reflection-and-rendering.md"
+test = "crates/core/engine_class_derive/tests/gpu_mirror_derive.rs (without_gpu_rows_the_companion_uploads_nothing)"
+status = "verified"
+
+[[schema]]
+type = "VolumetricLightPropsGpuMirror"
+path = "lights_component::light::sub_props::volumetrics::VolumetricLightPropsGpuMirror"
+buffers = []
+clears_on_remove = true
+releases_var_len = false
+registered = false
+writer = "none: the generated companion uploads a GPU row only for an #[engine_class(gpu_rows)] class (Phase 4); no engine class opts in"
+owner = "lights_component::light::sub_props::volumetrics"
+disposition = "keep as a CPU mapping type (LightComponent's derived LightSourceRow is built from its mirror); nothing is uploaded"
+target_contract = "Phase 2; 03-gpu-reflection-and-rendering.md"
+test = "crates/core/engine_class_derive/tests/gpu_mirror_derive.rs (without_gpu_rows_the_companion_uploads_nothing)"
+status = "verified"
+
+# ── GPU buffer keys ─────────────────────────────────────────────
+
+[[buffer]]
+key = "light_sources"
+producers = ["LightSourceRow"]
+consumers = []
+owner = "helio_component::components::light_component::source_row"
+disposition = "keep: a light instance in its own space, derived from LightComponent on every write; the scene join's light input"
+target_contract = "Phase 2; 03-gpu-reflection-and-rendering.md"
+test = "plugins/vendor/meshes/tests/scene_join_rows.rs"
+status = "verified"
+
+[[buffer]]
+key = "scene_lights"
+producers = ["LightComponent"]
+consumers = []
+owner = "helio-scene-derivations scene join (execution output)"
+disposition = "keep: light rows are joined on the GPU from LightSourceRow and the owner transform/visibility; shadow-matrix assigns atlas slots in them (Phase 2)"
+target_contract = "Phase 2; 03-gpu-reflection-and-rendering.md"
+test = "plugins/installed/tests/render_acceptance.rs"
+status = "verified"
+
+# ── Render pass crates ──────────────────────────────────────────
+
+[[pass]]
+crate = "helio-pass-billboard"
+in_default_graph = false
+reads = ["billboard_instances"]
+owner = "helio-presets (mapping); helio-pass-billboard (algorithm)"
+disposition = "runs in the editor graph, but nothing authored feeds it: sprites/billboards (Phase 4)"
+target_contract = "Phase 6; 03-gpu-reflection-and-rendering.md"
+test = "tracked in #1060; plugins/installed/tests/render_acceptance.rs (every_pass_of_the_editor_graph_runs)"
+status = "unfinished"
+
+[[pass]]
+crate = "helio-pass-deferred-light"
+in_default_graph = false
+reads = []
+owner = "helio-presets (mapping); helio-pass-deferred-light (algorithm)"
+disposition = "keep: reads scene_lights (joined from LightSourceRow) and water_volumes (joined from WaterVolumeSourceRow); environment_probes (reflection captures) has no authored producer yet (#1054)"
+target_contract = "Phase 6; 03-gpu-reflection-and-rendering.md"
+test = "plugins/installed/tests/render_acceptance.rs (meshes_and_lights_reach_the_frame_from_every_producer); plugins/installed/tests/render_acceptance.rs (environment_components_reach_the_frame); plugins/vendor/water/tests/scene_rows.rs; plugins/installed/tests/render_acceptance.rs (every_pass_of_the_editor_graph_runs)"
+status = "verified"
+
+[[pass]]
+crate = "helio-pass-hlfs"
+in_default_graph = false
+reads = []
+owner = "helio-presets (mapping and its World reader, SceneDbRayTracing); helio-pass-hlfs (algorithm)"
+disposition = "not in the engine's graph: Helio's separate HLFS graph; the engine never builds it; its World reader moved to helio-presets::ray_tracing (#1066)"
+target_contract = "Phase 6; 03-gpu-reflection-and-rendering.md"
+test = "plugins/installed/tests/render_acceptance.rs (every_pass_of_the_editor_graph_runs) (absent from the editor graph)"
+status = "out-of-scope"
+
+[[pass]]
+crate = "helio-pass-light-cull"
+in_default_graph = false
+reads = []
+owner = "helio-presets (mapping); helio-pass-light-cull (algorithm)"
+disposition = "keep: reads scene_lights, the scene join's output from each LightComponent's derived LightSourceRow and its owner transform (Phases 2 and 4)"
+target_contract = "Phase 6; 03-gpu-reflection-and-rendering.md"
+test = "plugins/installed/tests/render_acceptance.rs (meshes_and_lights_reach_the_frame_from_every_producer); plugins/installed/tests/render_acceptance.rs (every_pass_of_the_editor_graph_runs)"
+status = "verified"
+
+[[pass]]
+crate = "helio-pass-shadow-matrix"
+in_default_graph = false
+reads = []
+owner = "helio-presets (mapping); helio-pass-shadow-matrix (algorithm)"
+disposition = "keep: reads scene_lights, the scene join's output from each LightComponent's derived LightSourceRow and its owner transform (Phases 2 and 4)"
+target_contract = "Phase 6; 03-gpu-reflection-and-rendering.md"
+test = "plugins/installed/tests/render_acceptance.rs (meshes_and_lights_reach_the_frame_from_every_producer); plugins/installed/tests/render_acceptance.rs (every_pass_of_the_editor_graph_runs)"
+status = "verified"
+
+# ── Lifecycle call sites ────────────────────────────────────────
+
+[[site]]
+pattern = "add-component"
+file = "plugins/vendor/lights/editor/src/level_editor.rs"
+count = 1
+owner = "lights_editor::level_editor (the sky rig)"
+disposition = "keep: the sky rig adds its sun and moon lights through the editor's undoable AddComponent command when missing"
+target_contract = "Phase 3; 02-typed-reflection-and-writes.md"
+test = "plugins/installed/tests/level_editor.rs"
+status = "verified"
+
+[[buffer]]
+key = "billboard_instances"
+producers = ["BillboardComponent"]
+consumers = ["helio-pass-billboard"]
+owner = "helio-scene-derivations scene join (editor mode)"
+disposition = "keep: editor light icons are a GPU output of the join over authored light rows (Phase 2); authored 2D sprites are SpriteComponent, drawn by the sprite overlay, not billboards (#1060)"
+target_contract = "Phase 2; 03-gpu-reflection-and-rendering.md"
+test = "crates/renderer/helio/crates/helio-presets/tests/scene_join.rs"
+status = "verified"
+
+[[buffer]]
+key = "environment_probes"
+producers = ["ReflectionCaptureComponent"]
+consumers = []
+owner = "helio_pass_deferred_light::components::ReflectionCaptureComponent (the only schema); no engine writer"
+disposition = "unfinished (Phase 4; tracked in #1054): captures need baked cubemap layers; the engine runs no probe baker"
+target_contract = "Phase 4; 03-gpu-reflection-and-rendering.md"
+test = "tracked in #1054"
+status = "unfinished"
+
+[[class]]
+name = "LightComponent"
+category = "Rendering"
+world_registered = true
+own_gpu_columns = true
+owner = "helio_component::components::light_component"
+disposition = "render: every write derives its LightSourceRow (light_sources, Phase 4); the scene join publishes scene_lights from it and the owner's transform (Phase 2), including per-component rotation offsets and optional textured sky emitters. Multiple directional lights are supported and remain enabled on load."
+target_contract = "Phase 2; 03-gpu-reflection-and-rendering.md"
+test = "plugins/installed/tests/render_acceptance.rs (meshes_and_lights_reach_the_frame_from_every_producer)"
+status = "verified"
+notes = "Phase 0's failures (payloads that did not hydrate, lights added after the first frame) are covered by the Phase 2 rendered-frame cases (13-phase-2.md)."
+
+[[class]]
+name = "ReflectionCaptureComponent"
+category = "Rendering"
+world_registered = true
+own_gpu_columns = false
+owner = "helio_component::components::reflection_capture_component"
+disposition = "unfinished, Phase 4 (tracked in #1054): a capture contributes only through a baked cubemap layer and the engine runs no probe baker. Declared with declare_unfinished_component!: the properties card shows the reason and issue, and the first attach logs them once"
+target_contract = "Phase 4; 03-gpu-reflection-and-rendering.md"
+test = "plugins/vendor/lights/tests/unfinished_components.rs; tracked in #1054"
+status = "unfinished"

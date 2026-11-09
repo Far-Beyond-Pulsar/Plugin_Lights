@@ -94,7 +94,7 @@ impl LightSourceRow {
             glam::Quat::from_euler(glam::EulerRot::XYZ, rotation[0], rotation[1], rotation[2])
                 * glam::Vec3::NEG_Y;
         row.direction_outer[..3].copy_from_slice(&local_direction.to_array());
-        if light.emitter_disk.enabled {
+        if light.emitter_disk.disk_enabled {
             row.flare_enabled = 1;
             row.flare_type = match light.emitter_disk.texture {
                 super::EmitterDiskTexture::None => LIGHT_EMITTER_SOLID_DISK,
