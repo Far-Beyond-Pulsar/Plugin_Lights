@@ -13,6 +13,9 @@
 pub use helio_light_api::host_rows::LightComponent;
 pub use helio_pass_billboard::host_rows::BillboardComponent;
 pub use helio_pass_deferred_light::host_rows::ReflectionCaptureComponent;
+/// The light-field pipelines (`Preset::Model(HLFS)`), for a host that builds
+/// its own presets.
+pub use helio_pass_hlfs::{HLFS, HLFS_FXAA};
 
 /// The lights' Helio features: the shadow views, the light binning, the
 /// lighting models (deferred, light-field) and the billboards.

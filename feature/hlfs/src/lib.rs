@@ -14,7 +14,7 @@
 //! per-pixel candidate and shadow work stays within the configured budget.
 
 pub mod feature;
-pub use feature::HlfsFeature;
+pub use feature::{HlfsFeature, HLFS, HLFS_FXAA};
 
 use bytemuck::{Pod, Zeroable};
 use helio_core::graph::{ResourceBuilder, ResourceSize};

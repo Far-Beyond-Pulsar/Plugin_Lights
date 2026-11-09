@@ -1,13 +1,19 @@
 //! Deferred lighting as a feature: the lighting model of the deferred
-//! presets (`helio_frame_api::lighting::LightingModel::Deferred`), lighting
+//! presets (`helio_frame_api::lighting::model::DEFERRED`), lighting
 //! the G-buffer with every light, its shadows, the frame's lighting inputs
 //! and the IES profiles ([`crate::IesProfiles`]).
 
 use helio_feature_api::{pass_node, Feature, FeatureRegistrar};
-use helio_frame_api::lighting::{lighting_settings, LightingModel};
+use helio_feature_api::ExtensionPoint;
+use helio_frame_api::lighting::{
+    lighting_settings, model, LightingModel, RegisterLightingModel, Shading,
+};
 use helio_light_api::ShadowSettings;
 
 use crate::{DeferredLightPass, IesProfiles};
+
+/// Where the deferred model's pass joins the graph.
+pub const POINT: ExtensionPoint = ExtensionPoint("lighting.model.deferred");
 
 /// Deferred lighting ([`crate`]).
 pub struct DeferredLightingFeature;
@@ -32,9 +38,9 @@ impl Feature for DeferredLightingFeature {
                 },
             );
         }));
-        let point = LightingModel::Deferred
-            .point()
-            .expect("deferred lighting has a point");
+        // This pass resolves the G-buffer, reading the specular layers and
+        // the frame's inputs, which run before it.
+        registrar.lighting_model(LightingModel::new(model::DEFERRED, Shading::GBuffer).at(POINT));
         registrar.node(
             pass_node(
                 "deferred_light",
@@ -69,7 +75,7 @@ impl Feature for DeferredLightingFeature {
                 },
             )
             .with_marker_after()
-            .at(point, 0),
+            .at(POINT, 0),
         );
     }
 }
