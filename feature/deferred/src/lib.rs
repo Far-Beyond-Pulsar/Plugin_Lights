@@ -44,6 +44,17 @@ pub const REFLECTION_SAMPLED_TEXTURE_COUNT: u32 = 10;
 const _: () = assert!(BASE_SAMPLED_TEXTURE_COUNT <= 16);
 const _: () = assert!(REFLECTION_SAMPLED_TEXTURE_COUNT <= 16);
 
+/// The snippets the lighting shader opts into (`//!use pbr_eval` pulls
+/// helio-mats' PBR evaluation library in ahead of it, and so on).
+const SHADER_SNIPPETS: &[helio_core::shader::ShaderSnippet] = &[
+    helio_mats::PBR_EVAL_SNIPPET,
+    ATMOSPHERE_SNIPPET,
+    ATMOSPHERE_SKY_TABLE_SNIPPET,
+    helio_frame_api::lighting::INDIRECT_SPECULAR_SNIPPET,
+    helio_light_api::LIGHT_LIST_SNIPPET,
+    helio_light_api::SHADOW_ATLAS_SNIPPET,
+];
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct DeferredGlobals {
@@ -199,20 +210,11 @@ impl DeferredLightPass {
             usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
-        // `//!use pbr_eval` pulls helio-mats' PBR evaluation library in ahead
-        // of the shader, exactly what the hand-rolled concatenation used to do.
         let shader = helio_core::shader::module_with(
             device,
             "Deferred Lighting Shader",
             helio_core::include_wgsl!("../shaders/deferred_lighting.wgsl"),
-            &[
-                helio_mats::PBR_EVAL_SNIPPET,
-                ATMOSPHERE_SNIPPET,
-                ATMOSPHERE_SKY_TABLE_SNIPPET,
-                helio_frame_api::lighting::INDIRECT_SPECULAR_SNIPPET,
-                helio_light_api::LIGHT_LIST_SNIPPET,
-                helio_light_api::SHADOW_ATLAS_SNIPPET,
-            ],
+            SHADER_SNIPPETS,
         );
 
         let globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
@@ -2102,5 +2104,18 @@ mod layout_tests {
         assert_eq!(base, BASE_SAMPLED_TEXTURE_COUNT);
         assert_eq!(reflection, REFLECTION_SAMPLED_TEXTURE_COUNT);
         assert!(base <= 16 && reflection <= 16);
+    }
+
+    /// Every pixel runs this shader: no per-frame table (the atmosphere's
+    /// directional lights, the sky table) may be indexed through a value,
+    /// which copies the whole table per pixel (`value_array_copies`).
+    #[test]
+    fn the_lighting_shader_indexes_no_table_through_a_value() {
+        let source = helio_core::shader::resolve_with(
+            include_str!("../shaders/deferred_lighting.wgsl"),
+            SHADER_SNIPPETS,
+        );
+        let copies = helio_core::shader::value_array_copies(&source).unwrap();
+        assert!(copies.is_empty(), "{copies:#?}");
     }
 }
