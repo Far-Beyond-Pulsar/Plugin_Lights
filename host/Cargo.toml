@@ -21,4 +21,7 @@ glam = { workspace = true }
 helio = { workspace = true }
 helio-core = { workspace = true }
 helio-presets = { workspace = true }
+helio-frame-api = { workspace = true }
+helio-pass-fxaa = { workspace = true }
+helio-pass-tsr = { workspace = true }
 pollster = "0.4"
