@@ -123,45 +123,6 @@ fn time_cost_color(us_per_pixel: f32) -> vec3<f32> {
     return vec3<f32>(1.0, 0.0, 0.0);
 }
 
-// The sky's irradiance / pi at a surface `from_camera` (km, relative to the
-// camera) with normal `n`: its own sky, by its altitude and sun angle, not
-// the eye's (`sky_table_kernel`). Above the atmosphere the planet's glow
-// falls with its solid angle.
-fn atmosphere_local_irradiance(from_camera: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
-    if atmosphere.planet.w < 0.5 { return vec3<f32>(0.0); }
-    let bottom = atmosphere.params.bottom_radius;
-    let top = atmosphere.params.top_radius;
-    let pos = from_camera - atmosphere.planet.xyz;
-    let r = max(length(pos), bottom);
-    let up = normalize(pos);
-    let sun = atmosphere.sun.xyz;
-    let mu_s = dot(up, sun);
-    var x = sun - up * mu_s;
-    if dot(x, x) < 1e-8 { x = cross(up, select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(up.x) > 0.9)); }
-    x = normalize(x);
-    let z = cross(x, up);
-    let l = vec3<f32>(dot(n, x), dot(n, up), dot(n, z));
-    let height = clamp((r - bottom) / (top - bottom), 0.0, 1.0);
-    let fr = sqrt(height) * f32(SKY_TABLE_R - 1u);
-    let fm = clamp((mu_s - SKY_TABLE_MU_LO) / (1.0 - SKY_TABLE_MU_LO), 0.0, 1.0) * f32(SKY_TABLE_MU - 1u);
-    let r0 = min(u32(fr), SKY_TABLE_R - 2u);
-    let m0 = min(u32(fm), SKY_TABLE_MU - 2u);
-    let w = vec2<f32>(fr - f32(r0), fm - f32(m0));
-    let basis = array<f32, 6>(0.282095, 0.488603 * l.y, 0.488603 * l.x, 1.092548 * l.x * l.y, 0.315392 * (3.0 * l.z * l.z - 1.0), 0.546274 * (l.x * l.x - l.y * l.y));
-    var e = vec3<f32>(0.0);
-    for (var k = 0u; k < SKY_TABLE_COEFFS; k++) {
-        let a = (r0 * SKY_TABLE_MU + m0) * SKY_TABLE_COEFFS + k;
-        let b = a + SKY_TABLE_COEFFS;
-        let c = a + SKY_TABLE_MU * SKY_TABLE_COEFFS;
-        let d = c + SKY_TABLE_COEFFS;
-        let v = mix(mix(atmosphere_sky_table[a].rgb, atmosphere_sky_table[b].rgb, w.y), mix(atmosphere_sky_table[c].rgb, atmosphere_sky_table[d].rgb, w.y), w.x);
-        e += v * basis[k];
-    }
-    let above = length(pos) / top;
-    let falloff = select(1.0, 1.0 / (above * above), above > 1.0);
-    return max(e, vec3<f32>(0.0)) * atmosphere.sun_illuminance.rgb * falloff;
-}
-
 // min(dynamic, static) shadow comparison, skipping an atlas with no casters.
 fn compare_shadow_atlases(uv: vec2<f32>, layer: u32, depth_ref: f32) -> f32 {
     var lit = 1.0;
@@ -1357,7 +1318,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     if atmosphere.planet.w > 0.5 {
         // The sky over the surface, by its altitude and sun angle, not the
         // eye's.
-        hemi = atmosphere_sky_table_eval(atmosphere, (world_pos - eye) * 0.001, N, vec3<f32>(1.0)) * albedo;
+        hemi = atmosphere_sky_table_eval((world_pos - eye) * 0.001, N, vec3<f32>(1.0)) * albedo;
     } else {
         let sky_color    = globals.ambient_color.rgb * globals.ambient_intensity;
         let ground_color = sky_color * 0.15;
