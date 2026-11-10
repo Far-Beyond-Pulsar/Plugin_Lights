@@ -195,7 +195,7 @@ pub fn default_moon_light() -> LightComponent {
     moon.color.color = [0.68, 0.76, 1.0, 1.0];
     moon.intensity.intensity = 0.025;
     moon.advanced.rotation_offset = [18.0, 0.0, 112.0];
-    moon.emitter_disk.enabled = true;
+    moon.emitter_disk.disk_enabled = true;
     moon.emitter_disk.texture = lights_component::EmitterDiskTexture::MoonSolarSystemScopeCCBY40;
     moon.emitter_disk.angular_radius_degrees = 2.5;
     moon

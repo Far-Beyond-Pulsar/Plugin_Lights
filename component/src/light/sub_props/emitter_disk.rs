@@ -17,8 +17,12 @@ pub enum EmitterDiskTexture {
 #[category("Emitter Disk", category_color = "#D5C9FF")]
 #[serde(default)]
 pub struct EmitterDiskProps {
+    /// Draw the light's disk in the sky. Not `enabled`: a light's
+    /// properties are one flat set, and `enabled` is the light's own
+    /// (`GeneralLightProps`).
     #[property(category = "Emitter Disk")]
-    pub enabled: bool,
+    #[serde(alias = "enabled")]
+    pub disk_enabled: bool,
     /// Choose the image on the directional light's visible sky disk. The moon
     /// image is bundled from Solar System Scope and licensed CC BY 4.0.
     #[property(category = "Emitter Disk")]
@@ -32,7 +36,7 @@ pub struct EmitterDiskProps {
 impl Default for EmitterDiskProps {
     fn default() -> Self {
         Self {
-            enabled: false,
+            disk_enabled: false,
             texture: EmitterDiskTexture::None,
             // Slightly oversized for a clear, readable default moon disk.
             angular_radius_degrees: 2.5,
@@ -42,8 +46,8 @@ impl Default for EmitterDiskProps {
 
 impl EmitterDiskProps {
     pub(crate) fn apply_from_component_data(&mut self, obj: &serde_json::Map<String, Value>) {
-        if let Some(enabled) = obj.get("enabled").and_then(Value::as_bool) {
-            self.enabled = enabled;
+        if let Some(enabled) = obj.get("disk_enabled").and_then(Value::as_bool) {
+            self.disk_enabled = enabled;
         }
         if let Some(texture) = obj.get("texture").and_then(Value::as_str) {
             self.texture = match texture {
