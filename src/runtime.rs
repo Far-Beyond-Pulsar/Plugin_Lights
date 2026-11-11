@@ -3,8 +3,8 @@
 
 use engine_backend::scene::ObjectJoinRegistration;
 use engine_backend::scene::{ClassSpec, ComponentsBuilder};
-use engine_backend::subsystems::render::helio_renderer::ViewIconRegistration;
 use engine_backend::subsystems::render::RenderFeatureRegistration;
+use engine_backend::subsystems::render::helio_renderer::ViewIconRegistration;
 use helio_component::components::MovabilityRegistration;
 use lights_component::{LightComponent, ReflectionCaptureComponent};
 use pulsar_settings::project::rendering::SettingsGroupRegistration;
@@ -87,10 +87,12 @@ mod tests {
     #[test]
     fn registers_no_directional_light_rule_and_its_join() {
         // Directional lights are not a level singleton (several suns).
-        assert!(!pulsar_plugins::registered::<
-            engine_backend::scene::level_rules::LevelSingletonRegistration,
-        >()
-        .any(|rule| rule.class_name == lights_component::LIGHT_CLASS));
+        assert!(
+            !pulsar_plugins::registered::<
+                engine_backend::scene::level_rules::LevelSingletonRegistration,
+            >()
+            .any(|rule| rule.class_name == lights_component::LIGHT_CLASS)
+        );
         assert!(pulsar_plugins::registered::<
             engine_backend::scene::helio_bridge::ObjectJoinRegistration,
         >()
@@ -117,9 +119,10 @@ mod tests {
             .into_iter()
             .filter(|summary| summary.origin == pulsar_plugins::origin!())
             .collect();
-        assert!(ours
-            .iter()
-            .any(|summary| summary.category == "component.class"));
+        assert!(
+            ours.iter()
+                .any(|summary| summary.category == "component.class")
+        );
         for summary in &ours {
             assert_eq!(
                 pulsar_plugins::plugin_of(summary.origin).map(|plugin| plugin.id.as_str()),
