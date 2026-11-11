@@ -52,6 +52,11 @@ wgpu = { workspace = true }
 pollster = "=0.4.0"
 tempfile = { workspace = true }
 parking_lot = { workspace = true }
+# The render graph node tests (`tests/graph_node.rs`).
+helio-core = { workspace = true }
+helio-graph-asset = { workspace = true }
+helio-presets = { workspace = true }
+helio-frame-api = { workspace = true }
 
 [lints]
 workspace = true
