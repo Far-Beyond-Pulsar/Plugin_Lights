@@ -10,7 +10,6 @@ pub use feature::BillboardFeature;
 use bytemuck::{Pod, Zeroable};
 use helio_core::graph::ResourceBuilder;
 use helio_core::{PassContext, PrepareContext, RenderPass, Result as HelioResult};
-use pulsar_scenedb::gpu::BufferKey;
 
 pub mod components;
 #[cfg(feature = "host-rows")]
@@ -447,7 +446,8 @@ impl BillboardPass {
 
 impl RenderPass for BillboardPass {
     fn scene_buffers(&self) -> &'static [&'static str] {
-        &["billboard_instances"]
+        const BUFFERS: &[&str] = &[BILLBOARD_INSTANCES.name()];
+        BUFFERS
     }
 
     fn name(&self) -> &'static str {
@@ -457,7 +457,7 @@ impl RenderPass for BillboardPass {
     /// A member while some `"billboard_instances"` row is live. Hosts
     /// register the column up front, so its presence alone says nothing.
     fn is_member(&mut self, scene: &mut helio_core::SceneContent<'_>) -> bool {
-        scene.holds_rows("billboard_instances")
+        scene.holds_rows(BILLBOARD_INSTANCES.name())
     }
 
     fn reads(&self) -> &'static [&'static str] {
@@ -487,7 +487,7 @@ impl RenderPass for BillboardPass {
         // key, generically, every frame — no renderer method, no stored
         // SceneDB handle. `None` until the first `BillboardRow` is
         // ever inserted anywhere in the frontend's World.
-        match ctx.scene_buffers.get(BufferKey::of("billboard_instances")) {
+        match ctx.scene_buffers.get(BILLBOARD_INSTANCES.key()) {
             Some(handle) => {
                 // Capacity, not a live count: unused rows are `Zeroable`
                 // (`scale_flags` all zero), a zero-area billboard that

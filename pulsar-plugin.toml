@@ -6,7 +6,13 @@ id = "pulsar.lights"
 name = "Lights"
 description = "Lights and reflection captures: the light list, shadow views, the lighting models, IES profiles and light icons"
 enabled_by_default = true
-requires = []
+provides = [
+    { id = "pulsar.lights.rows", kind = "buffer", members = ["scene_lights", "directional_lights", "billboard_instances"], version = 1 },
+    { id = "pulsar.lights.api", kind = "api", members = ["helio-light-api", "helio-light-host", "helio-pass-deferred-light"], version = 1 },
+]
+requires = [
+    { id = "pulsar.materials.api", optional = true },
+]
 
 # The plugin's root crate (the package in this directory): the one place it
 # registers everything it contributes. A game links it without its `editor`

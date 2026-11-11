@@ -44,6 +44,7 @@ impl Feature for HlfsFeature {
     }
 
     fn register(&self, registrar: &mut FeatureRegistrar<'_>) {
+        registrar.consumes(helio_light_api::SCENE_LIGHTS);
         // What shader hot reload may swap without rebuilding the graph.
         registrar.swappable::<HlfsPass>();
         registrar.prepare(Arc::new(|env| {
