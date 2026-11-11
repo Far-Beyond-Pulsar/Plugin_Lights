@@ -1,6 +1,7 @@
 //! What the lights plugin registers for a game (and the editor): every
 //! runtime contribution, grouped by the engine seam it plugs into.
 
+use engine_backend::scene::{ClassSpec, ComponentsBuilder};
 use engine_backend::scene::ObjectJoinRegistration;
 use engine_backend::subsystems::render::RenderFeatureRegistration;
 use engine_backend::subsystems::render::helio_renderer::ViewIconRegistration;
@@ -8,66 +9,61 @@ use helio_component::components::MovabilityRegistration;
 use lights_component::{LightComponent, ReflectionCaptureComponent};
 use pulsar_settings::project::rendering::SettingsGroupRegistration;
 
-// ── Component classes ───────────────────────────────────────────────────────
+/// Everything the plugin registers for a game (and the editor).
+pub(crate) fn build(p: &mut pulsar_plugins::PluginBuilder) {
+    // ── Component classes ───────────────────────────────────────────────────
 
-pulsar_world_registry::submit_world_component!(LightComponent, ReflectionCaptureComponent);
+    p.components()
+        .class::<LightComponent>(ClassSpec::default())
+        .class::<ReflectionCaptureComponent>(ClassSpec::default());
 
-// ── Rendering ───────────────────────────────────────────────────────────────
+    // ── Rendering ───────────────────────────────────────────────────────────
 
-// The shadow views, the light binning, deferred and light-field lighting
-// and the billboards, configured from the project's shadow settings.
-inventory::submit! {
-    RenderFeatureRegistration {
-        origin: pulsar_plugins::origin!(),
+    // The shadow views, the light binning, deferred and light-field lighting
+    // and the billboards, configured from the project's shadow settings.
+    p.add(RenderFeatureRegistration {
+        origin: p.origin(),
         features: lights_component::render_features,
         configure: lights_component::configure_renderer,
-    }
-}
+    });
 
-// The project's `shadows` settings group.
-inventory::submit! {
-    SettingsGroupRegistration {
-        origin: pulsar_plugins::origin!(),
+    // The project's `shadows` settings group.
+    p.add(SettingsGroupRegistration {
+        origin: p.origin(),
         group: &helio_light_api::SHADOWS,
-    }
-}
+    });
 
-// The lights' join: the light list, its directional light and the editor's
-// light icons, after the meshes' join (a light reads no mesh row, but the
-// meshes' join is the group's first by convention).
-inventory::submit! {
-    ObjectJoinRegistration {
-        origin: pulsar_plugins::origin!(),
+    // The lights' join: the light list, its directional light and the editor's
+    // light icons, after the meshes' join (a light reads no mesh row, but the
+    // meshes' join is the group's first by convention).
+    p.add(ObjectJoinRegistration {
+        origin: p.origin(),
         name: "lights",
         order: 100,
         owner_bounds: None,
         register_columns: lights_component::register_columns,
         derivation: lights_component::light_join,
-    }
-}
+    });
 
-// A light object's billboard, which picking tests instead of a box.
-inventory::submit! {
-    ViewIconRegistration {
-        origin: pulsar_plugins::origin!(),
+    // A light object's billboard, which picking tests instead of a box.
+    p.add(ViewIconRegistration {
+        origin: p.origin(),
         name: "lights.icons",
         icon: lights_component::light_icon,
-    }
-}
+    });
 
-// ── Scene ───────────────────────────────────────────────────────────────────
+    // ── Scene ───────────────────────────────────────────────────────────────
 
-// What an object's light instances author fixes the object.
-inventory::submit! {
-    MovabilityRegistration {
-        origin: pulsar_plugins::origin!(),
+    // What an object's light instances author fixes the object.
+    p.add(MovabilityRegistration {
+        origin: p.origin(),
         name: "lights",
         of: |world, instance| {
             world
                 .get::<LightComponent>(instance)
                 .map(|light| light.general.movability)
         },
-    }
+    });
 }
 
 #[cfg(test)]
@@ -92,13 +88,12 @@ mod tests {
     fn registers_no_directional_light_rule_and_its_join() {
         // Directional lights are not a level singleton (several suns).
         assert!(
-            !inventory::iter::<engine_backend::scene::level_rules::LevelSingletonRegistration>
-                .into_iter()
-                .any(|rule| rule.class_name == lights_component::LIGHT_CLASS)
+            !pulsar_plugins::registered::<engine_backend::scene::level_rules::LevelSingletonRegistration>(
+            )
+            .any(|rule| rule.class_name == lights_component::LIGHT_CLASS)
         );
         assert!(
-            inventory::iter::<engine_backend::scene::helio_bridge::ObjectJoinRegistration>
-                .into_iter()
+            pulsar_plugins::registered::<engine_backend::scene::helio_bridge::ObjectJoinRegistration>()
                 .any(|join| join.name == "lights")
         );
     }
