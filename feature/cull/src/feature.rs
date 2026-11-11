@@ -9,8 +9,8 @@ use helio_frame_api::lighting::{
     lighting_model, model, InputsOrder, LightingModel, RegisterLightingModel, Shading,
     SpecularLayers,
 };
-use helio_light_api::LIGHT_FIELD_MODEL;
 use helio_frame_api::{FrameNode, Slot};
+use helio_light_api::LIGHT_FIELD_MODEL;
 
 use crate::LightCullPass;
 
@@ -23,6 +23,7 @@ impl Feature for LightCullFeature {
     }
 
     fn register(&self, registrar: &mut FeatureRegistrar<'_>) {
+        registrar.consumes(helio_light_api::SCENE_LIGHTS);
         // What shader hot reload may swap without rebuilding the graph.
         registrar.swappable::<LightCullPass>();
         // The forward model: the drawers light what they draw from the tile

@@ -28,6 +28,7 @@ impl Feature for BillboardFeature {
     }
 
     fn register(&self, registrar: &mut FeatureRegistrar<'_>) {
+        registrar.consumes(crate::BILLBOARD_INSTANCES);
         // What shader hot reload may swap without rebuilding the graph.
         registrar.swappable::<BillboardPass>();
         // The host supplies the rows every frame.

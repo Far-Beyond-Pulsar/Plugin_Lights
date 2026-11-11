@@ -52,6 +52,7 @@ impl Feature for ShadowViewsFeature {
     }
 
     fn register(&self, registrar: &mut FeatureRegistrar<'_>) {
+        registrar.consumes(helio_light_api::SCENE_LIGHTS);
         // Hot reload swaps the matrix pass with every pass that holds the
         // dirty flags it creates (a caster drawer declares the same handle).
         registrar.swap_shares::<LightDirtyFlags, ShadowMatrixPass>();

@@ -16,7 +16,6 @@ editor = ["dep:lights_editor", "dep:ui_level_editor"]
 [dependencies]
 # The plugin gate and the registrations' collection.
 pulsar_plugins = { workspace = true }
-inventory = { workspace = true }
 # The plugin's crates.
 lights_component = { workspace = true }
 helio-light-api = { workspace = true }
@@ -30,6 +29,8 @@ pulsar_world_registry = { workspace = true }
 ui_level_editor = { workspace = true, optional = true }
 
 [dev-dependencies]
+# The icon picking test registers a test kind's content geometry.
+inventory = { workspace = true }
 # The plugin's integration tests (`tests/`): the plugin as a game links it,
 # with the meshes these tests light and pick against.
 pulsar_scenedb = { workspace = true }

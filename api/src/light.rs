@@ -61,6 +61,11 @@ impl Default for DirectionalLights {
         bytemuck::Zeroable::zeroed()
     }
 }
+
+/// [`DIRECTIONAL_LIGHTS`] as a contract: what the lights publish and the
+/// sky, water and GI features read.
+pub const DIRECTIONAL_LIGHTS_ROW: helio_core::BufferContract<DirectionalLights> =
+    helio_core::BufferContract::new(DIRECTIONAL_LIGHTS);
 use bytemuck::{Pod, Zeroable};
 
 /// GPU light type discriminant.
