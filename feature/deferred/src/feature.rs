@@ -3,8 +3,8 @@
 //! the G-buffer with every light, its shadows, the frame's lighting inputs
 //! and the IES profiles ([`crate::IesProfiles`]).
 
-use helio_feature_api::{pass_node, Feature, FeatureRegistrar};
 use helio_feature_api::ExtensionPoint;
+use helio_feature_api::{pass_node, Feature, FeatureRegistrar};
 use helio_frame_api::lighting::{
     lighting_settings, model, LightingModel, RegisterLightingModel, Shading,
 };

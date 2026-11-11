@@ -9,8 +9,8 @@ use helio_frame_api::lighting::{
     lighting_model, model, InputsOrder, LightingModel, RegisterLightingModel, Shading,
     SpecularLayers,
 };
-use helio_light_api::LIGHT_FIELD_MODEL;
 use helio_frame_api::{FrameNode, Slot};
+use helio_light_api::LIGHT_FIELD_MODEL;
 
 use crate::LightCullPass;
 
