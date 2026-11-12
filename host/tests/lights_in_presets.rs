@@ -241,7 +241,7 @@ fn the_light_field_pipelines_build_and_render_on_their_model() {
     };
 
     // Both pipelines are the light-field model's, where a host finds them
-    // (the render pipelines plugin makes a `.rendergraph` of each).
+    // (the default pipelines plugin makes a `.rendergraph` of each).
     let features = helio_light_host::features();
     let registry = helio_presets::graphs::registry_with(&features);
     let listed: Vec<&str> = helio_frame_api::lighting::registered_models(&registry)
