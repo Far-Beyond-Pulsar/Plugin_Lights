@@ -240,12 +240,20 @@ fn the_light_field_pipelines_build_and_render_on_their_model() {
         return;
     };
 
-    // Both pipelines are listed in a host's registry.
+    // Both pipelines are the light-field model's, where a host finds them
+    // (the render pipelines plugin makes a `.rendergraph` of each).
     let features = helio_light_host::features();
-    let mut listed = helio::RenderPipelineRegistry::new();
-    helio_presets::pipelines::register_builtin_pipelines(&mut listed, &features);
+    let registry = helio_presets::graphs::registry_with(&features);
+    let listed: Vec<&str> = helio_frame_api::lighting::registered_models(&registry)
+        .iter()
+        .flat_map(|model| model.pipelines.iter().map(|pipeline| pipeline.id))
+        .collect();
     for pipeline in [helio_light_host::HLFS, helio_light_host::HLFS_FXAA] {
-        assert_eq!(listed.resolve(Some(pipeline.id)), Some(pipeline.id));
+        assert!(
+            listed.contains(&pipeline.id),
+            "{} in {listed:?}",
+            pipeline.id
+        );
     }
 
     let view = target(&device, (64, 48));
