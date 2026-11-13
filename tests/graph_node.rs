@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use engine_backend::subsystems::render::helio_renderer::{pipelines, render_features};
 use helio::{DebugDrawState, PassBuildContext, RendererConfig};
-use helio_graph_asset::{validate, NodeInstance, NodeRegistry, PinKind};
+use helio_graph_asset::{NodeInstance, NodeRegistry, PinKind, validate};
 use helio_presets::Preset;
 use pulsar_scenedb::gpu::{EngineGpuContext, GpuMirrorHandle, SceneGpuConfig, SceneGpuStore};
 
@@ -19,11 +19,31 @@ const PLUGIN: &str = "pulsar.lights";
 /// Every pass node of the plugin: kind, owning feature, a fragment of the
 /// type name of the pass it builds, and whether the pass declares resources.
 const NODES: &[(&str, &str, &str, bool)] = &[
-    ("helio.pass.shadow_matrix", "helio.lights.shadow_views", "ShadowMatrixPass", true),
-    ("helio.pass.light_cull", "helio.lights.binning", "LightCullPass", true),
-    ("helio.pass.deferred_light", "helio.lights.deferred", "DeferredLightPass", true),
+    (
+        "helio.pass.shadow_matrix",
+        "helio.lights.shadow_views",
+        "ShadowMatrixPass",
+        true,
+    ),
+    (
+        "helio.pass.light_cull",
+        "helio.lights.binning",
+        "LightCullPass",
+        true,
+    ),
+    (
+        "helio.pass.deferred_light",
+        "helio.lights.deferred",
+        "DeferredLightPass",
+        true,
+    ),
     ("helio.pass.hlfs", "helio.hlfs", "HlfsPass", true),
-    ("helio.pass.billboard", "helio.billboards", "BillboardPass", true),
+    (
+        "helio.pass.billboard",
+        "helio.billboards",
+        "BillboardPass",
+        true,
+    ),
 ];
 
 /// A pipeline the plugin's nodes are placed in.
@@ -41,13 +61,27 @@ const CASES: &[Case] = &[
     Case {
         name: "deferred",
         preset: |_| Preset::Deferred,
-        kinds: &["helio.pass.shadow_matrix", "helio.pass.light_cull", "helio.pass.deferred_light", "helio.pass.billboard"],
-        passes: &["ShadowMatrixPass", "LightCullPass", "DeferredLightPass", "BillboardPass"],
+        kinds: &[
+            "helio.pass.shadow_matrix",
+            "helio.pass.light_cull",
+            "helio.pass.deferred_light",
+            "helio.pass.billboard",
+        ],
+        passes: &[
+            "ShadowMatrixPass",
+            "LightCullPass",
+            "DeferredLightPass",
+            "BillboardPass",
+        ],
     },
     Case {
         name: "hlfs",
         preset: hlfs,
-        kinds: &["helio.pass.shadow_matrix", "helio.pass.hlfs", "helio.pass.billboard"],
+        kinds: &[
+            "helio.pass.shadow_matrix",
+            "helio.pass.hlfs",
+            "helio.pass.billboard",
+        ],
         passes: &["ShadowMatrixPass", "HlfsPass", "BillboardPass"],
     },
 ];
@@ -61,7 +95,6 @@ fn hlfs(registry: &NodeRegistry) -> Preset {
         .map(Preset::Model)
         .expect("the lights register the HLFS pipeline")
 }
-
 
 /// The plugin gate is process-wide state and a wgpu device is one at a time
 /// (Pulsar-Native#1647): every test takes this first.
@@ -118,7 +151,7 @@ fn is_ours(kind: &str) -> bool {
 
 /// The case's pipeline as a graph asset over `registry`.
 fn asset_of(case: &Case, registry: &NodeRegistry) -> helio_graph_asset::GraphAsset {
-    helio_presets::graphs::graph_asset((case.preset)(registry), registry, &configured())
+    helio_presets::graphs::graph_asset((case.preset)(registry), registry)
 }
 
 /// Every node instance of the asset, in its sections too.
@@ -182,19 +215,26 @@ fn the_plugin_registers_its_nodes_where_the_default_pipeline_ran_them() {
             .get(kind)
             .unwrap_or_else(|| panic!("`{kind}` is registered"));
         assert_eq!(registry.feature_of(kind), Some(*feature), "{kind}");
-        assert!(node.generated, "{kind}: pins come from what the pass declares");
+        assert!(
+            node.generated,
+            "{kind}: pins come from what the pass declares"
+        );
         assert!(node.params.iter().any(|p| p.key == "enabled"), "{kind}");
         assert!(node.placement.is_some(), "{kind}: placed in the frame");
     }
     for case in CASES {
         let preset = (case.preset)(&registry);
         let kinds: Vec<String> = preset
-            .nodes(&registry, &configured())
+            .nodes(&registry)
             .into_iter()
             .map(|node| node.kind)
             .filter(|kind| is_ours(kind))
             .collect();
-        assert_eq!(kinds, case.kinds, "{}: the plugin's nodes in order", case.name);
+        assert_eq!(
+            kinds, case.kinds,
+            "{}: the plugin's nodes in order",
+            case.name
+        );
     }
 }
 
@@ -209,7 +249,11 @@ fn the_graph_builds_the_passes_and_enabled_bypasses_them() {
             eprintln!("GPU_VALIDATION_SKIPPED_NO_ADAPTER: {PLUGIN} graph nodes");
             return;
         };
-        assert_eq!(passes, case.passes, "{}: the plugin's passes in order", case.name);
+        assert_eq!(
+            passes, case.passes,
+            "{}: the plugin's passes in order",
+            case.name
+        );
 
         // The Enabled parameter bypasses the node: no pass.
         for node in instances_mut(&mut asset).filter(|n| is_ours(&n.kind)) {
@@ -238,8 +282,14 @@ fn the_probe_gives_each_node_the_pins_its_pass_declares() {
             .get(kind)
             .unwrap_or_else(|| panic!("`{kind}` is registered"));
         let pins = node.pins(&Default::default());
-        assert!(pins.inputs.iter().any(|p| p.ty.kind == PinKind::Flow), "{kind}");
-        assert!(pins.outputs.iter().any(|p| p.ty.kind == PinKind::Flow), "{kind}");
+        assert!(
+            pins.inputs.iter().any(|p| p.ty.kind == PinKind::Flow),
+            "{kind}"
+        );
+        assert!(
+            pins.outputs.iter().any(|p| p.ty.kind == PinKind::Flow),
+            "{kind}"
+        );
         let resources = pins
             .inputs
             .iter()
