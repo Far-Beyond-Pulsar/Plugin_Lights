@@ -1,7 +1,7 @@
 //!use helio_prelude
 //!use pbr_eval
-//!use atmosphere
-//!use atmosphere_sky_table
+//!use frame_sky
+//!use sky_table
 //!use frame_indirect_specular
 //!use light_list
 //!use shadow_atlas
@@ -91,9 +91,9 @@ struct ShadowCasterCounts {
 // is at its storage-buffer limit. The sun reaches surfaces through the air
 // between them and space, and the sky lights them; the air between them and
 // the eye is the atmosphere composite's.
-@group(0) @binding(9) var<uniform> atmosphere: AtmosphereFrame;
-// The sky over each surface (`AtmosphereFrame` docs, `SKY_TABLE_*`).
-@group(0) @binding(10) var<uniform> atmosphere_sky_table: array<vec4<f32>, 2304>;
+@group(0) @binding(9) var<uniform> sky_frame: SkyFrame;
+// The sky over each surface (`SkyFrame` docs, `SKY_TABLE_*`).
+@group(0) @binding(10) var<uniform> sky_table: array<vec4<f32>, 2304>;
 
 // The frame's view remaps (`helio_frame_api::lighting::VIEW_REMAPS`): per
 // chain, the matrix taking a point of the host world into the world the
@@ -772,8 +772,8 @@ fn light_incidence(light: GpuLight, world_pos: vec3<f32>) -> Incidence {
     if light.light_type == 0u {  // Directional light
         L        = normalize(-light.direction_outer.xyz);
         // A distant light crosses the atmosphere, if any, to reach the point.
-        let through = atmosphere_transmittance_towards(
-            atmosphere, (world_pos - cameras[0].position_near.xyz) * 0.001, L);
+        let through = sky_transmittance_towards(
+            sky_frame, (world_pos - cameras[0].position_near.xyz) * 0.001, L);
         radiance = light.color_intensity.xyz * light.color_intensity.w * through;
     } else {  // Point or spot light
         let to_light = light.position_range.xyz - world_pos;
@@ -1315,10 +1315,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     // the surface (its altitude and sun angle), the lit ground below its
     // horizon included, cosine-convolved.
     var hemi: vec3<f32>;
-    if atmosphere.planet.w > 0.5 {
+    if sky_frame.planet.w > 0.5 {
         // The sky over the surface, by its altitude and sun angle, not the
         // eye's.
-        hemi = atmosphere_sky_table_eval((world_pos - eye) * 0.001, N, vec3<f32>(1.0)) * albedo;
+        hemi = sky_table_eval((world_pos - eye) * 0.001, N, vec3<f32>(1.0)) * albedo;
     } else {
         let sky_color    = globals.ambient_color.rgb * globals.ambient_intensity;
         let ground_color = sky_color * 0.15;

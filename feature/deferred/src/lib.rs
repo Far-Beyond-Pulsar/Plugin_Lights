@@ -5,8 +5,7 @@ use helio_core::{
     RenderPass, Result as HelioResult,
 };
 use helio_frame_api::lighting::sky::{
-    ATMOSPHERE_FRAME, ATMOSPHERE_FRAME_BYTES, ATMOSPHERE_SKY_TABLE, ATMOSPHERE_SKY_TABLE_BYTES,
-    ATMOSPHERE_SKY_TABLE_SNIPPET, ATMOSPHERE_SNIPPET,
+    SKY_FRAME, SKY_FRAME_BYTES, SKY_SNIPPET, SKY_TABLE, SKY_TABLE_BYTES, SKY_TABLE_SNIPPET,
 };
 use helio_frame_api::lighting::{
     DIRECTIONAL_VISIBILITY, ENVIRONMENT_CUBES, ENVIRONMENT_CUBES_SAMPLER, ENVIRONMENT_PROBES,
@@ -48,8 +47,8 @@ const _: () = assert!(REFLECTION_SAMPLED_TEXTURE_COUNT <= 16);
 /// helio-mats' PBR evaluation library in ahead of it, and so on).
 const SHADER_SNIPPETS: &[helio_core::shader::ShaderSnippet] = &[
     helio_mats::PBR_EVAL_SNIPPET,
-    ATMOSPHERE_SNIPPET,
-    ATMOSPHERE_SKY_TABLE_SNIPPET,
+    SKY_SNIPPET,
+    SKY_TABLE_SNIPPET,
     helio_frame_api::lighting::INDIRECT_SPECULAR_SNIPPET,
     helio_light_api::LIGHT_LIST_SNIPPET,
     helio_light_api::SHADOW_ATLAS_SNIPPET,
@@ -96,7 +95,7 @@ pub struct DeferredLightPass {
     shadow_config_buf: wgpu::Buffer,
     bgl_0: wgpu::BindGroupLayout,
     fallback_shadow_caster_counts: wgpu::Buffer,
-    /// A zeroed `AtmosphereFrame`: no atmosphere, bound until one publishes.
+    /// A zeroed `SkyFrame`: no atmosphere, bound until one publishes.
     fallback_atmosphere: wgpu::Buffer,
     fallback_sky_table: wgpu::Buffer,
     fallback_view_remaps: wgpu::Buffer,
@@ -288,18 +287,18 @@ impl DeferredLightPass {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(ATMOSPHERE_FRAME_BYTES),
+                        min_binding_size: wgpu::BufferSize::new(SKY_FRAME_BYTES),
                     },
                     count: None,
                 },
-                // The sky over each surface (`atmosphere_sky_table`).
+                // The sky over each surface (`sky_table`).
                 wgpu::BindGroupLayoutEntry {
                     binding: 10,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(ATMOSPHERE_SKY_TABLE_BYTES),
+                        min_binding_size: wgpu::BufferSize::new(SKY_TABLE_BYTES),
                     },
                     count: None,
                 },
@@ -327,13 +326,13 @@ impl DeferredLightPass {
         });
         let fallback_atmosphere = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("DeferredLight No Atmosphere"),
-            size: ATMOSPHERE_FRAME_BYTES,
+            size: SKY_FRAME_BYTES,
             usage: wgpu::BufferUsages::UNIFORM,
             mapped_at_creation: false,
         });
         let fallback_sky_table = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("DeferredLight No Sky Table"),
-            size: ATMOSPHERE_SKY_TABLE_BYTES,
+            size: SKY_TABLE_BYTES,
             usage: wgpu::BufferUsages::UNIFORM,
             mapped_at_creation: false,
         });
@@ -898,8 +897,8 @@ impl RenderPass for DeferredLightPass {
             helio_light_api::SHADOW_SAMPLER,
             helio_light_api::SHADOW_TRANSMITTANCE,
             helio_light_api::SHADOW_CASTER_COUNTS,
-            ATMOSPHERE_FRAME,
-            ATMOSPHERE_SKY_TABLE,
+            SKY_FRAME,
+            SKY_TABLE,
             SUN_VISIBILITY,
             "ssao",
             helio_light_api::TILE_LIGHT_LISTS,
@@ -1387,11 +1386,11 @@ impl RenderPass for DeferredLightPass {
             .unwrap_or(&self.fallback_shadow_caster_counts);
         let atmosphere = ctx
             .registry
-            .get::<&wgpu::Buffer>(helio_core::ResourceKey::new(ATMOSPHERE_FRAME))
+            .get::<&wgpu::Buffer>(helio_core::ResourceKey::new(SKY_FRAME))
             .unwrap_or(&self.fallback_atmosphere);
         let sky_table = ctx
             .registry
-            .get::<&wgpu::Buffer>(helio_core::ResourceKey::new(ATMOSPHERE_SKY_TABLE))
+            .get::<&wgpu::Buffer>(helio_core::ResourceKey::new(SKY_TABLE))
             .unwrap_or(&self.fallback_sky_table);
         let view_remaps = ctx
             .scene_buffers

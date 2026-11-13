@@ -35,7 +35,6 @@ impl Feature for DeferredLightingFeature {
                 helio_frame_api::diagnostics::TileCounter {
                     resource: helio_light_api::TILE_LIGHT_COUNTS,
                     tile_px: helio_light_api::TILE_SIZE,
-                    after_node: helio_feature_api::pass_kind("deferred_light"),
                 },
             );
         }));
