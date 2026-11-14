@@ -827,21 +827,8 @@ impl RenderPass for HlfsPass {
                     helio_frame_api::gbuffer::VELOCITY,
                 ))
                 .is_some() as u32,
-            // Baked lightmaps are optional.  Screen-space HLFS is the dynamic,
-            // no-bake path, so use non-panicking lookups for these resources.
-            surface_flags: (ctx
-                .registry
-                .get::<&wgpu::TextureView>(helio_core::ResourceKey::new(
-                    helio_bake_types::BAKED_LIGHTMAP,
-                ))
-                .is_some()
-                && ctx
-                    .registry
-                    .get::<&wgpu::TextureView>(helio_core::ResourceKey::new(
-                        helio_frame_api::gbuffer::LIGHTMAP_UV,
-                    ))
-                    .is_some()) as u32
-                | (u32::from(self.previous_light_generation == Some(ctx.frame_num)) << 1)
+            // Bit 0 is unused (it was the baked lightmap's).
+            surface_flags: (u32::from(self.previous_light_generation == Some(ctx.frame_num)) << 1)
                 | (u32::from(self.config.tile_presampling) << 2)
                 | (u32::from(self.config.temporal_resampling) << 3)
                 | (u32::from(
@@ -954,16 +941,6 @@ impl RenderPass for HlfsPass {
                 gbuffer.views[2],
                 gbuffer.views[3],
                 ctx.depth,
-                ctx.registry
-                    .get::<&wgpu::TextureView>(helio_core::ResourceKey::new(
-                        helio_frame_api::gbuffer::LIGHTMAP_UV,
-                    ))
-                    .unwrap_or(&f.lightmap_uv.view),
-                ctx.registry
-                    .get::<&wgpu::TextureView>(helio_core::ResourceKey::new(
-                        helio_bake_types::BAKED_LIGHTMAP,
-                    ))
-                    .unwrap_or(&f.black.view),
                 pre_aa,
                 ctx.registry
                     .get::<&wgpu::TextureView>(helio_core::ResourceKey::new(
@@ -971,10 +948,6 @@ impl RenderPass for HlfsPass {
                     ))
                     .unwrap_or(&f.black.view),
             ],
-            lightmap_sampler: ctx
-                .registry
-                .get::<&wgpu::Sampler>(helio_core::ResourceKey::new("baked_lightmap_sampler"))
-                .unwrap_or(&f.linear_sampler),
             gi_irradiance: ctx
                 .registry
                 .buffer_binding(helio_frame_api::lighting::INDIRECT_DIFFUSE)

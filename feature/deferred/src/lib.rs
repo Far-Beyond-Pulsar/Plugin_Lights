@@ -119,8 +119,8 @@ pub struct DeferredLightPass {
     bind_group_1_key: Option<Vec<wgpu::TextureView>>,
     bind_group_2_key: Option<(
         usize,
-        [wgpu::TextureView; 5],
-        [wgpu::Sampler; 4],
+        [wgpu::TextureView; 4],
+        [wgpu::Sampler; 3],
         wgpu::Buffer,
     )>,
     bind_group_3_key: Option<[wgpu::Buffer; 4]>,
@@ -151,11 +151,8 @@ pub struct DeferredLightPass {
     /// 1×1 white R8Unorm fallback used when neither SSAO nor baked AO is available.
     fallback_ao_view: wgpu::TextureView,
     fallback_ao_sampler: wgpu::Sampler,
-    /// 1×1 black Rgba16Float fallback used when baked lightmap is not available.
-    fallback_lightmap_view: wgpu::TextureView,
-    fallback_lightmap_sampler: wgpu::Sampler,
-    /// 1×1 black Rg16Float fallback for lightmap UVs when not available.
-    fallback_lightmap_uv_view: wgpu::TextureView,
+    /// 1×1 Rg16Float fallback for the G-buffer's surface channel: the plain tag.
+    fallback_surface_view: wgpu::TextureView,
     /// 1×1 black Rgba16Float stand-ins for the indirect-specular layers
     /// (no coverage) and the sun's visibility.
     fallback_ssr_view: wgpu::TextureView,
@@ -720,19 +717,6 @@ impl DeferredLightPass {
             ..Default::default()
         });
 
-        // Fallback 1×1 black Rgba16Float lightmap texture.
-        // Used when baked lightmap is not available (no indirect lighting).
-        let (_fallback_lightmap_tex, fallback_lightmap_view) =
-            black_2d_texture(device, queue, "Deferred Fallback Lightmap");
-        let fallback_lightmap_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("Deferred Fallback Lightmap Sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-
         // Fallback 1×1 black Rgba16Float SSR texture (no SSR available).
         let (_fallback_ssr_texture, fallback_ssr_view) =
             black_2d_texture(device, queue, "Deferred Fallback SSR");
@@ -741,10 +725,9 @@ impl DeferredLightPass {
         let (_fallback_planar_texture, fallback_planar_view) =
             black_2d_texture(device, queue, "Deferred Fallback Planar");
 
-        // Fallback 1×1 zero Rg16Float lightmap UV texture.
-        // Used when lightmap UVs are not available from GBuffer.
-        let fallback_lightmap_uv_tex = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Deferred Fallback Lightmap UV"),
+        // Fallback 1×1 Rg16Float surface channel holding the plain tag.
+        let fallback_surface_tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Deferred Fallback Surface"),
             size: wgpu::Extent3d {
                 width: 1,
                 height: 1,
@@ -759,12 +742,13 @@ impl DeferredLightPass {
         });
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &fallback_lightmap_uv_tex,
+                texture: &fallback_surface_tex,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &[0u8; 4], // (0.0, 0.0) UV coords
+            // The plain tag (-1, -1) as two f16s: a surface with no payload.
+            &[0x00, 0xBC, 0x00, 0xBC],
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4),
@@ -776,7 +760,7 @@ impl DeferredLightPass {
                 depth_or_array_layers: 1,
             },
         );
-        let fallback_lightmap_uv_view = fallback_lightmap_uv_tex.create_view(&Default::default());
+        let fallback_surface_view = fallback_surface_tex.create_view(&Default::default());
 
         Self {
             pipeline,
@@ -822,9 +806,7 @@ impl DeferredLightPass {
             fallback_reflection_captures,
             fallback_ao_view,
             fallback_ao_sampler,
-            fallback_lightmap_view,
-            fallback_lightmap_sampler,
-            fallback_lightmap_uv_view,
+            fallback_surface_view,
             fallback_ssr_view,
             fallback_planar_view,
             fallback_ies_view,
@@ -888,7 +870,7 @@ impl RenderPass for DeferredLightPass {
     fn reads(&self) -> &'static [&'static str] {
         &[
             helio_frame_api::gbuffer::GROUP,
-            helio_frame_api::gbuffer::LIGHTMAP_UV,
+            helio_frame_api::gbuffer::SURFACE,
             helio_frame_api::gbuffer::SSS,
             helio_frame_api::gbuffer::EXTRA,
             helio_frame_api::gbuffer::DEPTH,
@@ -907,8 +889,6 @@ impl RenderPass for DeferredLightPass {
             helio_core::resource_keys::RENDER_ENVIRONMENT,
             TRANSMISSION,
             helio_frame_api::color::SCENE_COLOR,
-            helio_bake_types::BAKED_LIGHTMAP,
-            "baked_lightmap_sampler",
             INDIRECT_SPECULAR_LAYERS[0],
             INDIRECT_SPECULAR_LAYERS[1],
         ]
@@ -1024,25 +1004,25 @@ impl RenderPass for DeferredLightPass {
             .get(helio_core::ResourceKey::new("ssao"))
             .unwrap_or(&self.fallback_ao_view);
 
-        // Lightmap UVs from GBuffer
-        let lightmap_uv_view = ctx
+        // The G-buffer's surface channel
+        let surface_view = ctx
             .registry
             .get(helio_core::ResourceKey::new(
-                helio_frame_api::gbuffer::LIGHTMAP_UV,
+                helio_frame_api::gbuffer::SURFACE,
             ))
-            .unwrap_or(&self.fallback_lightmap_uv_view);
+            .unwrap_or(&self.fallback_surface_view);
 
         // SSS/Extra data from GBuffer
         let sss_view = ctx
             .registry
             .get(helio_core::ResourceKey::new(helio_frame_api::gbuffer::SSS))
-            .unwrap_or(&self.fallback_lightmap_uv_view);
+            .unwrap_or(&self.fallback_surface_view);
         let extra_view = ctx
             .registry
             .get(helio_core::ResourceKey::new(
                 helio_frame_api::gbuffer::EXTRA,
             ))
-            .unwrap_or(&self.fallback_lightmap_uv_view);
+            .unwrap_or(&self.fallback_surface_view);
         // The sun's visibility at each pixel: occluders' and media's together
         // (`sun_visibility`), or the occluders' alone.
         let directional_visibility_view = ctx
@@ -1058,7 +1038,7 @@ impl RenderPass for DeferredLightPass {
             gbuffer.views[3],
             ctx.depth,
             ao_view,
-            lightmap_uv_view,
+            surface_view,
             sss_view,
             extra_view,
             directional_visibility_view,
@@ -1085,8 +1065,8 @@ impl RenderPass for DeferredLightPass {
                         binding: 6,
                         resource: wgpu::BindingResource::Sampler(&self.fallback_ao_sampler),
                     },
-                    // Lightmap UVs from GBuffer (binding 7)
-                    texture_view_entry(7, lightmap_uv_view),
+                    // The G-buffer's surface channel (binding 7)
+                    texture_view_entry(7, surface_view),
                     // SSS data (binding 8)
                     texture_view_entry(8, sss_view),
                     // Extra surface data (binding 9)
@@ -1103,7 +1083,7 @@ impl RenderPass for DeferredLightPass {
             gbuffer.views[3],
             ctx.depth,
             ao_view,
-            lightmap_uv_view,
+            surface_view,
         ]
         .into_iter()
         .cloned()
@@ -1126,7 +1106,7 @@ impl RenderPass for DeferredLightPass {
                             binding: 6,
                             resource: wgpu::BindingResource::Sampler(&self.fallback_ao_sampler),
                         },
-                        texture_view_entry(7, lightmap_uv_view),
+                        texture_view_entry(7, surface_view),
                     ],
                 }));
             self.reflection_bind_group_1_key = Some(reflection_gbuffer_key);
@@ -1165,18 +1145,6 @@ impl RenderPass for DeferredLightPass {
             .registry
             .get(helio_core::ResourceKey::new(ENVIRONMENT_CUBES_SAMPLER))
             .unwrap_or(&self.fallback_env_sampler);
-
-        // Baked lightmap atlas from bake inject pass
-        let lightmap_view = ctx
-            .registry
-            .get(helio_core::ResourceKey::new(
-                helio_bake_types::BAKED_LIGHTMAP,
-            ))
-            .unwrap_or(&self.fallback_lightmap_view);
-        let lightmap_sampler = ctx
-            .registry
-            .get(helio_core::ResourceKey::new("baked_lightmap_sampler"))
-            .unwrap_or(&self.fallback_lightmap_sampler);
 
         // Radiance media add (the frame's `transmission`).
         let transmission_view = ctx
@@ -1221,14 +1189,12 @@ impl RenderPass for DeferredLightPass {
             [
                 shadow_view.clone(),
                 static_shadow_view.clone(),
-                lightmap_view.clone(),
                 ies_view.clone(),
                 transmittance_view.clone(),
             ],
             [
                 shadow_sampler.clone(),
                 self.shadow_depth_sampler.clone(),
-                lightmap_sampler.clone(),
                 self.ies_sampler.clone(),
             ],
             shadow_matrices_buf.clone(),
@@ -1260,13 +1226,6 @@ impl RenderPass for DeferredLightPass {
                     },
                     // Static shadow atlas (binding 11) — cached, only changes with Static topology
                     texture_view_entry(11, static_shadow_view),
-                    // Baked lightmap atlas (binding 12)
-                    texture_view_entry(12, lightmap_view),
-                    // Baked lightmap sampler (binding 13)
-                    wgpu::BindGroupEntry {
-                        binding: 13,
-                        resource: wgpu::BindingResource::Sampler(lightmap_sampler),
-                    },
                     // IES textures (binding 18) — from frame resources, fallback to identity
                     wgpu::BindGroupEntry {
                         binding: 18,
@@ -1522,10 +1481,10 @@ impl RenderPass for DeferredLightPass {
                 description: "Base specular reflectance before Fresnel",
             },
             DebugViewDescriptor {
-                name: "Lightmap UV",
+                name: "Surface Payload",
                 debug_mode: 14,
                 description:
-                    "Baked lightmap UVs; gray means no lightmap, magenta means virtual geometry",
+                    "The G-buffer surface payload a feature requested (a bake's lightmap UVs); gray means a tag (no payload)",
             },
             DebugViewDescriptor {
                 name: "Subsurface Color",
@@ -1560,7 +1519,7 @@ impl RenderPass for DeferredLightPass {
             DebugViewDescriptor {
                 name: "Indirect Lighting",
                 debug_mode: 23,
-                description: "Diffuse indirect light: the sky ambient or GI probes, or the baked lightmap",
+                description: "Diffuse indirect light: the sky ambient or the frame's indirect diffuse (GI probes, baked lightmaps)",
             },
             DebugViewDescriptor {
                 name: "Lighting Only",
@@ -1581,7 +1540,7 @@ impl RenderPass for DeferredLightPass {
             DebugViewDescriptor {
                 name: "GI Blend",
                 debug_mode: 27,
-                description: "Red=GI probe weight, blue=baked lightmap weight",
+                description: "Red=the frame's indirect-diffuse weight",
             },
             DebugViewDescriptor {
                 name: "GI Irradiance",
@@ -1762,7 +1721,7 @@ fn base_group_1_layout() -> Vec<wgpu::BindGroupLayoutEntry> {
             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
             count: None,
         },
-        // Lightmap UVs from GBuffer (binding 7, Rg16Float)
+        // The G-buffer's surface channel (binding 7, Rg16Float)
         texture_entry(7, wgpu::TextureSampleType::Float { filterable: false }),
         // SSS data: subsurface_color.rgb + subsurface_radius (Rgba16Float)
         texture_entry(8, wgpu::TextureSampleType::Float { filterable: false }),
@@ -1772,7 +1731,7 @@ fn base_group_1_layout() -> Vec<wgpu::BindGroupLayoutEntry> {
     ]
 }
 
-/// Base lighting, group 2: lights, shadows, lightmaps, IES profiles.
+/// Base lighting, group 2: lights, shadows, IES profiles.
 fn base_group_2_layout() -> Vec<wgpu::BindGroupLayoutEntry> {
     vec![
         storage_entry(0),
@@ -1808,15 +1767,6 @@ fn base_group_2_layout() -> Vec<wgpu::BindGroupLayoutEntry> {
                 view_dimension: wgpu::TextureViewDimension::D2Array,
                 multisampled: false,
             },
-            count: None,
-        },
-        // Baked lightmap atlas texture
-        texture_entry(12, wgpu::TextureSampleType::Float { filterable: true }),
-        // Baked lightmap sampler
-        wgpu::BindGroupLayoutEntry {
-            binding: 13,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
             count: None,
         },
         // IES texture array (binding 18)
