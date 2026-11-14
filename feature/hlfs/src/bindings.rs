@@ -150,9 +150,8 @@ pub(crate) struct Inputs<'a> {
     pub shadow_transmittance: &'a wgpu::TextureView,
     pub linear_sampler: &'a wgpu::Sampler,
     pub shadow_sampler: &'a wgpu::Sampler,
-    /// albedo, normal, ORM, emissive, depth, lightmap UV, lightmap, pre-AA, velocity
-    pub textures: [&'a wgpu::TextureView; 9],
-    pub lightmap_sampler: &'a wgpu::Sampler,
+    /// albedo, normal, ORM, emissive, depth, pre-AA, velocity
+    pub textures: [&'a wgpu::TextureView; 7],
     /// The frame's indirect diffuse at each pixel (`INDIRECT_DIFFUSE`), or a
     /// buffer holding none.
     pub gi_irradiance: &'a wgpu::Buffer,
@@ -175,8 +174,7 @@ impl CommonKey {
     }
 }
 struct GBufferKey {
-    textures: [wgpu::TextureView; 9],
-    sampler: wgpu::Sampler,
+    textures: [wgpu::TextureView; 7],
     gi_irradiance: wgpu::Buffer,
 }
 impl GBufferKey {
@@ -185,7 +183,6 @@ impl GBufferKey {
             .iter()
             .zip(i.textures)
             .all(|(old, new)| old == new)
-            && &self.sampler == i.lightmap_sampler
             && &self.gi_irradiance == i.gi_irradiance
     }
 }
@@ -310,15 +307,11 @@ impl ExternalBindings {
                     view(i.textures[4]),
                     view(i.textures[5]),
                     view(i.textures[6]),
-                    wgpu::BindingResource::Sampler(i.lightmap_sampler),
-                    view(i.textures[7]),
-                    view(i.textures[8]),
                     i.gi_irradiance.as_entire_binding(),
                 ],
             ));
             self.gbuffer_key = Some(GBufferKey {
                 textures: i.textures.map(Clone::clone),
-                sampler: i.lightmap_sampler.clone(),
                 gi_irradiance: i.gi_irradiance.clone(),
             });
         }

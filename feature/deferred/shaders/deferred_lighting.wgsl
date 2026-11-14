@@ -157,8 +157,9 @@ fn load_shadow_occluder_depth(pixel: vec2<i32>, layer: u32) -> f32 {
 // Bound to a 1×1 white fallback texture when neither SSAO nor baked AO is available.
 @group(1) @binding(5) var screen_ao:     texture_2d<f32>;
 @group(1) @binding(6) var screen_ao_samp: sampler;
-// Lightmap UVs from GBuffer (Rg16Float, contains atlas UV coordinates for lightmap lookup)
-@group(1) @binding(7) var gbuf_lightmap_uv: texture_2d<f32>;
+// The G-buffer's surface channel (Rg16Float): the frame's surface tags, or the
+// payload a feature requested (`helio_frame_api::gbuffer::SURFACE`).
+@group(1) @binding(7) var gbuf_surface: texture_2d<f32>;
 // SSS data (Rgba16Float): subsurface_color.rgb, subsurface_radius
 @group(1) @binding(8) var gbuf_sss: texture_2d<f32>;
 // Extra surface data (Rgba16Float): roughness_aniso_x, roughness_aniso_y, aniso_rotation, numeric surface_flags
@@ -184,9 +185,6 @@ fn load_shadow_occluder_depth(pixel: vec2<i32>, layer: u32) -> f32 {
 // Radiance media add at each pixel (`helio_frame_api::lighting::TRANSMISSION`:
 // light water focuses, say), added to the indirect term. 1x1 black without.
 @group(2) @binding(8) var transmission: texture_2d<f32>;
-// Baked lightmap atlas (Rgba16Float, pre-baked indirect illumination for Static geometry)
-@group(2) @binding(12) var baked_lightmap: texture_2d<f32>;
-@group(2) @binding(13) var baked_lightmap_sampler: sampler;
 // The frame's indirect-specular layers (`helio_frame_api::lighting::
 // INDIRECT_SPECULAR_LAYERS`), composited over the environment in order: rgb
 // the reflected radiance before Fresnel, a its coverage. 1x1 black without.
@@ -941,7 +939,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     // screen-space AO kernel would overwhelm (coarse lattice edges at
     // distance, a meadow's blades), so it gets material AO and hemisphere
     // fill only.
-    let surface_tag = textureLoad(gbuf_lightmap_uv, pix, 0).rg;
+    let surface_tag = textureLoad(gbuf_surface, pix, 0).rg;
     let is_traced = gbuffer_tagged(surface_tag, GBUFFER_TAG_TRACED);
     // A traced drawer's debug colours (trace cost, levels) unlit.
     if globals.debug_mode == 32u || globals.debug_mode == 34u || (globals.debug_mode == 35u && pix.x * 2 < i32(textureDimensions(gbuf_albedo).x)) {
@@ -957,8 +955,8 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         // source `vis_resolve` recorded for each one (hardware raster, compute
         // micro-raster, dense peel, ray query) and marks them with albedo alpha 0:
         // take that colour, never a guess from this pass's own state.
-        // `GBUFFER_TAG_UNLIGHTMAPPED` cannot be that marker: every classic mesh
-        // without a lightmap writes it too. Anything unmarked was written by
+        // `GBUFFER_TAG_PLAIN` cannot be that marker: every classic mesh
+        // without a surface payload writes it too. Anything unmarked was written by
         // the classic G-buffer raster.
         let painted_by_virtual_geometry = albedo_a.a < 0.004;
         if is_traced {
@@ -996,7 +994,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         return vec4<f32>(f0, 1.0);
     }
     if globals.debug_mode == 14u {
-        if !gbuffer_has_lightmap(surface_tag) {
+        if !gbuffer_has_payload(surface_tag) {
             return vec4<f32>(0.12, 0.12, 0.12, 1.0);
         }
         return vec4<f32>(fract(surface_tag), 0.0, 1.0);
@@ -1019,8 +1017,6 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         return vec4<f32>(N_host * 0.5 + 0.5, 1.0);
     }
 
-    let lightmap_uv     = surface_tag;
-    let has_lightmap    = gbuffer_has_lightmap(lightmap_uv);
 
     // ── Reconstruct world position from depth + inv_view_proj ────────────────
     // clip_pos.xy is in viewport space (0→width, 0→height, y↓).
@@ -1032,7 +1028,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     let world_pos_host = world_h.xyz / world_h.w;
 
     // A remapped pixel is shaded where its content really is: back through the chain.
-    let remap_chain = view_remap_of(lightmap_uv);
+    let remap_chain = view_remap_of(surface_tag);
     let remapped    = remap_chain >= 0;
     var world_pos = world_pos_host;
     var N         = N_host;
@@ -1160,7 +1156,6 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         // metallic, and lighting response do not change the execution path).
         var material_work = 1.0;
         material_work += select(0.0, 1.8, is_anisotropic) + select(0.0, 1.2, has_subsurface);
-        material_work += select(0.0, 0.4, has_lightmap);
         let surface_work = 2.0 + material_work * 2.0 + affecting_lights * 1.6 + shadow_work * 1.1;
         if globals.debug_mode == 52u {
             // Show an absolute estimated time contribution per output pixel.
@@ -1283,25 +1278,6 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         sss_transmission = sss_r.rgb * rim * 1.2;
     }
 
-    // ── Baked lightmap indirect diffuse ───────────────────────────────────────
-    // For static geometry: pre-computed multi-bounce GI from offline baking.
-    //
-    // The GBuffer vertex shader writes a sentinel of (-1, -1) into the lightmap UV
-    // channel for instances that have no lightmap (lightmap_index == 0xFFFFFFFF).
-    // We detect this sentinel here to skip the lightmap contribution entirely,
-    // rather than checking `uv > 0.01` which would incorrectly skip valid atlas
-    // regions whose top-left corner happens to be near (0, 0).
-    //
-    // The UV is already clamped to the region's half-texel-inset boundary in the
-    // vertex shader, so textureSample cannot bleed into adjacent atlas regions.
-    // textureSampleLevel instead of textureSample: control flow is non-uniform (depends on
-    // per-fragment world_pos via clip_pos), so WebGPU requires an explicit LOD variant.
-    let lightmap_sample = textureSampleLevel(baked_lightmap, baked_lightmap_sampler, lightmap_uv, 0.0).rgb;
-    // Nebula stores Σ(radiance · NdotL) — the same weighted sum pbr_direct_light accumulates
-    // into Lo.  No extra 1/π factor here: Nebula does not divide by π in the bake shader,
-    // so neither do we.  This convention matches Unreal Engine's lightmap pipeline.
-    let lightmap_indirect = lightmap_sample * albedo;
-
     // Indirect specular is composed by fs_reflection in a second draw. This
     // keeps both fragment stages within the WebGPU baseline texture limit.
 
@@ -1325,9 +1301,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         let hemi_t       = N.y * 0.5 + 0.5;
         hemi             = mix(ground_color, sky_color, hemi_t) * albedo;
     }
-    // Where the GI probes hold the point, their irradiance replaces the
-    // sky's: bounce light, and no sky where the world hides it (a remapped
-    // pixel's probes are the host's: it keeps the sky).
+    // Where the frame's indirect diffuse holds the point (GI probes' bounce
+    // light, a bake's lightmapped irradiance), it replaces the sky's: no sky
+    // where the world hides it (a remapped pixel's is the host's: it keeps
+    // the sky).
     let gi_word = u32(in.clip_pos.y) * u32(screen_size.x) + u32(in.clip_pos.x);
     var gi_weight = 0.0;
     var gi = vec3<f32>(0.0);
@@ -1353,33 +1330,20 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         return vec4<f32>(select(vec3<f32>(0.25, 0.0, 0.25), gi, gi_weight > 0.0), 1.0);
     }
 
-    // Baked lightmap weight: 1.0 for static objects with valid lightmap, 0.0 otherwise.
-    let lm_weight      = select(0.0, 1.0, has_lightmap);
-
     if globals.debug_mode == 27u {
-        return vec4<f32>(gi_weight, 0.0, lm_weight, 1.0);
+        return vec4<f32>(gi_weight, 0.0, 0.0, 1.0);
     }
 
-    // The sky's ambient or the GI probes' (`hemi`); the baked lightmap
-    // replaces it where there is one (below).
+    // The sky's ambient or the frame's indirect diffuse (`hemi`).
     let ambient_final = hemi;
 
     // ── Combine ───────────────────────────────────────────────────────────────
-    //
-    // Unreal-style "Static light" model:
-    //   • The baked lightmap encodes TOTAL LIGHTING (direct shadow + indirect GI)
-    //     from every baked light.  For lightmapped surfaces Lo is suppressed so the
-    //     same lights are not double-counted.
-    //   • AO is NOT applied to the lightmap.  The path-traced bake already accounts
-    //     for per-texel occlusion via shadow rays; applying screen-space AO on top
-    //     would double-darken the result.
-    //   • For un-lightmapped surfaces the normal dynamic path applies AO to the
-    //     hemisphere/GI ambient term as usual.
-    let lo_final      = Lo * (1.0 - lm_weight);          // suppress Lo for baked pixels
-    let indirect_dyn  = ambient_final * ao_combined;  // AO on dynamic GI
-    let indirect_bake = lightmap_indirect;            // no AO on lightmap
-    let indirect      = select(indirect_dyn, indirect_bake, has_lightmap);
-    var color         = lo_final + indirect;
+    // Direct light is dynamic for every surface; baked lighting contributes
+    // indirect irradiance only, through the frame's indirect diffuse (above),
+    // so nothing is counted twice and lights a bake did not see still light.
+    let lo_final  = Lo;
+    let indirect  = ambient_final * ao_combined;
+    var color     = lo_final + indirect;
     if globals.debug_mode == 22u {
         return vec4<f32>(lo_final, 1.0);
     }
@@ -1460,15 +1424,14 @@ fn fs_reflection(in: VSOut) -> @location(0) vec4<f32> {
     let screen_size = vec2<f32>(textureDimensions(gbuf_normal));
     let screen_uv = in.clip_pos.xy / screen_size;
     let ao_combined = orm_r.r * textureSample(screen_ao, screen_ao_samp, screen_uv).r;
-    let lightmap_uv = textureLoad(gbuf_lightmap_uv, pix, 0).rg;
-    let has_lightmap = gbuffer_has_lightmap(lightmap_uv);
+    let surface_tag = textureLoad(gbuf_surface, pix, 0).rg;
 
     let ndc_xy = vec2<f32>(screen_uv.x * 2.0 - 1.0, 1.0 - screen_uv.y * 2.0);
     let world_h = cameras[0].view_proj_inv * vec4<f32>(ndc_xy, depth, 1.0);
     let world_pos_host = world_h.xyz / world_h.w;
 
     // A remapped pixel reflects its content's world, seen from where the eye is in it.
-    let remap_chain = view_remap_of(lightmap_uv);
+    let remap_chain = view_remap_of(surface_tag);
     let remapped = remap_chain >= 0;
     var world_pos = world_pos_host;
     var N = N_host;
@@ -1502,7 +1465,7 @@ fn fs_reflection(in: VSOut) -> @location(0) vec4<f32> {
         spec_ind = spec_ind * (1.0 - planar_hit.a) + planar_hit.rgb * F_ibl;
     }
 
-    let contribution = select(spec_ind * ao_combined, spec_ind, has_lightmap);
+    let contribution = spec_ind * ao_combined;
     var added = vec3<f32>(0.0);
     if all(vec2<u32>(pix) < textureDimensions(transmission)) {
         added = textureLoad(transmission, pix, 0).rgb;

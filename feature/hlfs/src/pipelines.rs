@@ -467,17 +467,12 @@ impl Pipelines {
                 entry(11, storage(true), all),
             ],
         );
-        let mut gbuffer_entries: Vec<_> = (0..10)
+        // albedo, normal, ORM, emissive, depth, pre-AA, velocity.
+        let mut gbuffer_entries: Vec<_> = (0..7)
             .map(|i| entry(i, texture(D::D2, i == 4), all))
             .collect();
-        gbuffer_entries[6].ty = wgpu::BindingType::Texture {
-            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-            view_dimension: D::D2,
-            multisampled: false,
-        };
-        gbuffer_entries[7].ty = wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering);
-        // The GI probes' irradiance at each pixel (`gi_irradiance`).
-        gbuffer_entries.push(entry(10, storage(true), all));
+        // The frame's indirect diffuse at each pixel (`gi_irradiance`).
+        gbuffer_entries.push(entry(7, storage(true), all));
         let gbuffer_bgl = bgl(device, "HLFS GBuffer layout", &gbuffer_entries);
         let depth_bgl = bgl(
             device,

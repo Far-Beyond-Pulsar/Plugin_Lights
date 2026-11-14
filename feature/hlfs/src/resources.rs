@@ -190,7 +190,6 @@ pub(crate) struct Fallbacks {
     pub black: Image,
     /// `black` as a one-layer array: the zero (unfiltered) glass transmittance.
     pub black_array_view: wgpu::TextureView,
-    pub lightmap_uv: Image,
     pub _shadow: Image,
     pub shadow_view: wgpu::TextureView,
     pub shadow_sampler: wgpu::Sampler,
@@ -212,28 +211,6 @@ impl Fallbacks {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
         });
-        let lightmap_uv = Image::new(
-            device,
-            "HLFS missing lightmap UV",
-            1,
-            1,
-            wgpu::TextureFormat::Rgba32Float,
-            false,
-        );
-        queue.write_texture(
-            lightmap_uv.texture.as_image_copy(),
-            bytemuck::cast_slice(&[-1.0f32, -1.0, 0.0, 0.0]),
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(16),
-                rows_per_image: Some(1),
-            },
-            wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-        );
         let shadow = Image::new(
             device,
             "HLFS unshadowed fallback",
@@ -273,7 +250,7 @@ impl Fallbacks {
             ..Default::default()
         });
         let linear_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("HLFS lightmap sampler"),
+            label: Some("HLFS linear sampler"),
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
@@ -327,7 +304,6 @@ impl Fallbacks {
             }),
             black,
             black_array_view,
-            lightmap_uv,
             _shadow: shadow,
             shadow_view,
             shadow_sampler,

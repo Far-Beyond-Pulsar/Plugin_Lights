@@ -15,7 +15,6 @@ host-rows = ["dep:helio-components", "dep:pulsar_scenedb_derive", "dep:serde_jso
 
 [dependencies]
 helio-light-api = { workspace = true }
-helio-bake-types = { workspace = true }
 pulsar_reflection = { workspace = true }
 helio-core  = { workspace = true }
 helio-mats  = { workspace = true }

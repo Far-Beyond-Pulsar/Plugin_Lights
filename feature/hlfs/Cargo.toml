@@ -7,7 +7,6 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 helio-light-api = { workspace = true }
-helio-bake-types = { workspace = true }
 helio-feature-api = { workspace = true }
 helio-frame-api = { workspace = true }
 helio-core  = { workspace = true }
