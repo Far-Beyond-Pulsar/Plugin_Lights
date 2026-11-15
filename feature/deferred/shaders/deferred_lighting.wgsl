@@ -971,6 +971,18 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     // Combined AO: material AO from G-buffer × screen-space AO.
     let ao_combined  = ao * ssao_factor;
 
+    if globals.debug_mode == 37u {
+        let screen_ao_value = textureSample(screen_ao, screen_ao_samp, screen_uv).r;
+        return vec4<f32>(vec3<f32>(screen_ao_value), 1.0);
+    }
+    if globals.debug_mode == 38u {
+        let tile_x = u32(pix.x) / TILE_SIZE;
+        let tile_y = u32(pix.y) / TILE_SIZE;
+        let tile_idx = tile_y * globals.num_tiles_x + tile_x;
+        let count = tile_light_counts[tile_idx];
+        return vec4<f32>(complexity_color(f32(count) / f32(MAX_LIGHTS_PER_TILE)), 1.0);
+    }
+
     // Material and G-buffer visualizations return before lighting mixes in
     // direct or indirect contributions.
     if globals.debug_mode == 6u {
@@ -1124,14 +1136,36 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         let tile_y = u32(in.clip_pos.y) / TILE_SIZE;
         let tile_idx = tile_y * globals.num_tiles_x + tile_x;
         var light_pass_count = tile_light_counts[tile_idx];
+        let tile_overflow = light_pass_count > MAX_LIGHTS_PER_TILE;
+        // Overflow tiles fall back to scanning the full scene light buffer.
+        // This trades speed for correct lighting instead of silently dropping
+        // every candidate after the tile list's first 64 entries.
+        if tile_overflow { light_pass_count = MAX_LIGHTS_PER_TILE + globals.light_count; }
         if remapped { light_pass_count = min(globals.light_count, REMAPPED_MAX_LIGHTS); }
 
         var affecting_lights = 0.0;
         var shadow_work = 0.0;
         for (var i = 0u; i < light_pass_count; i++) {
             var light_idx = i;
-            if !remapped { light_idx = tile_light_lists[tile_idx * MAX_LIGHTS_PER_TILE + i]; }
+            if !remapped {
+                if tile_overflow && i < MAX_LIGHTS_PER_TILE {
+                    light_idx = tile_light_lists[tile_idx * MAX_LIGHTS_PER_TILE + i];
+                } else if tile_overflow {
+                    light_idx = i - MAX_LIGHTS_PER_TILE;
+                    var already_listed = false;
+                    for (var slot = 0u; slot < MAX_LIGHTS_PER_TILE; slot++) {
+                        if tile_light_lists[tile_idx * MAX_LIGHTS_PER_TILE + slot] == light_idx {
+                            already_listed = true;
+                            break;
+                        }
+                    }
+                    if already_listed { continue; }
+                } else {
+                    light_idx = tile_light_lists[tile_idx * MAX_LIGHTS_PER_TILE + i];
+                }
+            }
             let light = lights[light_idx];
+            if light.color_intensity.w <= 0.0 { continue; }
             if light.light_type != 0u {
                 let to_light = light.position_range.xyz - world_pos;
                 let dist = length(to_light);
@@ -1203,6 +1237,8 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         let tile_y = u32(in.clip_pos.y) / TILE_SIZE;
         let tile_idx = tile_y * globals.num_tiles_x + tile_x;
         var light_pass_count = tile_light_counts[tile_idx];
+        let tile_overflow = light_pass_count > MAX_LIGHTS_PER_TILE;
+        if tile_overflow { light_pass_count = MAX_LIGHTS_PER_TILE + globals.light_count; }
         if remapped {
             light_pass_count = min(globals.light_count, REMAPPED_MAX_LIGHTS);
         }
@@ -1210,9 +1246,24 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         for (var i = 0u; i < light_pass_count; i++) {
             var light_idx = i;
             if !remapped {
-                light_idx = tile_light_lists[tile_idx * MAX_LIGHTS_PER_TILE + i];
+                if tile_overflow && i < MAX_LIGHTS_PER_TILE {
+                    light_idx = tile_light_lists[tile_idx * MAX_LIGHTS_PER_TILE + i];
+                } else if tile_overflow {
+                    light_idx = i - MAX_LIGHTS_PER_TILE;
+                    var already_listed = false;
+                    for (var slot = 0u; slot < MAX_LIGHTS_PER_TILE; slot++) {
+                        if tile_light_lists[tile_idx * MAX_LIGHTS_PER_TILE + slot] == light_idx {
+                            already_listed = true;
+                            break;
+                        }
+                    }
+                    if already_listed { continue; }
+                } else {
+                    light_idx = tile_light_lists[tile_idx * MAX_LIGHTS_PER_TILE + i];
+                }
             }
             let light = lights[light_idx];
+            if light.color_intensity.w <= 0.0 { continue; }
             if light.light_type != 0u {
                 let dist = length(light.position_range.xyz - world_pos);
                 if dist > light.position_range.w { continue; }
@@ -1251,7 +1302,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
             if !remapped && light.light_type != 0u && i < 32u {
                 sf *= terrain_light_visibility(local_words, i);
             }
-            if !remapped && light.light_type == 0u && dot(sun_seen.yzw, sun_seen.yzw) > 0.5 {
+            if !remapped && light.light_type == 0u && i < MAX_LIGHTS_PER_TILE && dot(sun_seen.yzw, sun_seen.yzw) > 0.5 {
                 let light_direction = -normalize(light.direction_outer.xyz);
                 if dot(normalize(sun_seen.yzw), light_direction) > 0.99999 {
                     sf *= clamp(sun_seen.x, 0.0, 1.0);
@@ -1400,6 +1451,7 @@ fn fs_reflection(in: VSOut) -> @location(0) vec4<f32> {
         || globals.debug_mode == 24u || globals.debug_mode == 25u
         || globals.debug_mode == 26u || globals.debug_mode == 27u
         || globals.debug_mode == 28u || globals.debug_mode == 29u
+        || globals.debug_mode == 37u || globals.debug_mode == 38u
         || globals.debug_mode == 34u || globals.debug_mode == 35u
         || globals.debug_mode == 36u
         || (globals.debug_mode >= 100u && globals.debug_mode < 128u)

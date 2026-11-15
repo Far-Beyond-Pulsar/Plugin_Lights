@@ -177,8 +177,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         if light.light_type == LIGHT_DIRECTIONAL {
             if count < LIGHT_MAX_PER_TILE {
                 tile_light_lists[tile_idx * LIGHT_MAX_PER_TILE + count] = i;
-                count += 1u;
             }
+            count += 1u;
             continue;
         }
 
@@ -208,8 +208,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         if sphere_inside_tile_frustum(pos_vs, range, planes) {
             if count < LIGHT_MAX_PER_TILE {
                 tile_light_lists[tile_idx * LIGHT_MAX_PER_TILE + count] = i;
-                count += 1u;
             }
+            count += 1u;
         }
     }
 

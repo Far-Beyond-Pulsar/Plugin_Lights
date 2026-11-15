@@ -77,6 +77,7 @@ pub struct LightCullPass {
     cull_cache_key: Option<(u64, (u64, u64), u32, bool)>,
     num_tiles_x: u32,
     num_tiles_y: u32,
+    num_light_slots: u32,
     width: u32,
     height: u32,
 }
@@ -261,6 +262,7 @@ impl LightCullPass {
             cull_cache_key: None,
             num_tiles_x,
             num_tiles_y,
+            num_light_slots: 0,
             width,
             height,
         }
@@ -274,6 +276,15 @@ impl RenderPass for LightCullPass {
 
     fn name(&self) -> &'static str {
         "LightCull"
+    }
+
+    fn diagnostics(&self) -> Option<String> {
+        (self.num_light_slots > MAX_LIGHTS_PER_TILE).then(|| {
+            format!(
+                "WARNING: tiled lighting can exceed its {}-light per-tile list capacity (scene light buffer: {} slots). Overflow tiles now shade against the full light buffer; inspect Lighting: Tile Light Count.",
+                self.num_light_slots, MAX_LIGHTS_PER_TILE
+            )
+        })
     }
 
     fn declare_resources(&self, builder: &mut ResourceBuilder) {
@@ -376,6 +387,7 @@ impl RenderPass for LightCullPass {
         // Every allocated row: the buffer grows with the scene and unused
         // rows are zeroed.
         let num_lights = scene_lights.map_or(0, |lights| lights.row_capacity());
+        self.num_light_slots = num_lights;
         let required_bytes = (u64::from(num_lights) + 1) * 4;
         if self.active_indices.size() < required_bytes {
             self.active_indices = ctx.device.create_buffer(&wgpu::BufferDescriptor {

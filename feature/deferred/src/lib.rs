@@ -21,7 +21,7 @@ pub mod gpu_types;
 #[cfg(feature = "host-rows")]
 pub mod host_rows;
 pub use components::REFLECTION_CAPTURES;
-pub use components::{ReflectionCaptureRow, MAX_REFLECTION_CAPTURES};
+pub use components::{MAX_REFLECTION_CAPTURES, ReflectionCaptureRow};
 pub use feature::DeferredLightingFeature;
 pub use gpu_types::*;
 
@@ -1476,6 +1476,16 @@ impl RenderPass for DeferredLightPass {
                 description: "Material AO multiplied by screen-space AO",
             },
             DebugViewDescriptor {
+                name: "Screen-Space AO",
+                debug_mode: 37,
+                description: "Screen-space ambient occlusion sampled by deferred lighting, without material AO",
+            },
+            DebugViewDescriptor {
+                name: "Tile Light Count",
+                debug_mode: 38,
+                description: "Number of local and directional lights assigned to each 16×16 screen tile",
+            },
+            DebugViewDescriptor {
                 name: "Specular F0",
                 debug_mode: 13,
                 description: "Base specular reflectance before Fresnel",
@@ -1483,8 +1493,7 @@ impl RenderPass for DeferredLightPass {
             DebugViewDescriptor {
                 name: "Surface Payload",
                 debug_mode: 14,
-                description:
-                    "The G-buffer surface payload a feature requested (a bake's lightmap UVs); gray means a tag (no payload)",
+                description: "The G-buffer surface payload a feature requested (a bake's lightmap UVs); gray means a tag (no payload)",
             },
             DebugViewDescriptor {
                 name: "Subsurface Color",
@@ -1524,8 +1533,7 @@ impl RenderPass for DeferredLightPass {
             DebugViewDescriptor {
                 name: "Lighting Only",
                 debug_mode: 24,
-                description:
-                    "Direct plus indirect diffuse lighting without emissive or subsurface glow",
+                description: "Direct plus indirect diffuse lighting without emissive or subsurface glow",
             },
             DebugViewDescriptor {
                 name: "Emissive and SSS",
@@ -1553,6 +1561,16 @@ impl RenderPass for DeferredLightPass {
                 description: "What GI changes against the sky's ambient: green brighter, red darker (full at 3 stops), blue where no probe holds the point",
             },
             DebugViewDescriptor {
+                name: "SSR Confidence",
+                debug_mode: 30,
+                description: "Coverage/confidence of screen-space reflection hits; black means no valid hit",
+            },
+            DebugViewDescriptor {
+                name: "SSR Reflected Radiance",
+                debug_mode: 31,
+                description: "Raw reflected scene radiance before Fresnel and material weighting",
+            },
+            DebugViewDescriptor {
                 name: "Light Complexity",
                 debug_mode: 50,
                 description: "Scalar heat map of directional lights and local lights within their attenuation radii",
@@ -1574,6 +1592,10 @@ impl RenderPass for DeferredLightPass {
             },
         ];
         VIEWS
+    }
+
+    fn debug_view_category(&self, _debug_mode: u32) -> &'static str {
+        "Lighting"
     }
 
     fn debug_view_legend(&self, debug_mode: u32) -> Option<DebugViewLegend> {
@@ -1643,6 +1665,28 @@ impl RenderPass for DeferredLightPass {
                 color: [255, 0, 0],
             },
         ];
+        static TILE_LIGHTS: &[DebugViewLegendStop] = &[
+            DebugViewLegendStop {
+                label: "0",
+                color: [0, 0, 255],
+            },
+            DebugViewLegendStop {
+                label: "16",
+                color: [0, 255, 255],
+            },
+            DebugViewLegendStop {
+                label: "32",
+                color: [0, 255, 0],
+            },
+            DebugViewLegendStop {
+                label: "48",
+                color: [255, 255, 0],
+            },
+            DebugViewLegendStop {
+                label: "64+",
+                color: [255, 0, 0],
+            },
+        ];
 
         // Colours match `deferred_lighting.wgsl` (classic, voxel) and the virtual
         // geometry debug pass (`DBG_RVR_*` in `vg_debug.wgsl`).
@@ -1675,17 +1719,22 @@ impl RenderPass for DeferredLightPass {
                 unit: "",
                 stops: RAY_VS_RASTER,
             }),
-            28 => Some(DebugViewLegend {
+            38 => Some(DebugViewLegend {
+                title: "Lights per screen tile",
+                unit: "lights",
+                stops: TILE_LIGHTS,
+            }),
+            50 => Some(DebugViewLegend {
                 title: "Light complexity",
                 unit: "lights",
                 stops: LIGHTS,
             }),
-            29 => Some(DebugViewLegend {
+            51 => Some(DebugViewLegend {
                 title: "Shader complexity",
                 unit: "work units",
                 stops: WORK,
             }),
-            34 => Some(DebugViewLegend {
+            52 => Some(DebugViewLegend {
                 title: "Estimated GPU time per pixel",
                 unit: "µs / pixel",
                 stops: COLORS,
