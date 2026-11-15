@@ -123,11 +123,14 @@ pub struct DeferredLightPass {
         [wgpu::Sampler; 3],
         wgpu::Buffer,
     )>,
-    bind_group_3_key: Option<[wgpu::Buffer; 4]>,
+    bind_group_3_key: Option<[wgpu::Buffer; 7]>,
     reflection_bind_group_1_key: Option<Vec<wgpu::TextureView>>,
     reflection_bind_group_2_key: Option<([wgpu::TextureView; 4], wgpu::Sampler, wgpu::Buffer)>,
     fallback_tile_lists: wgpu::Buffer,
     fallback_tile_counts: wgpu::Buffer,
+    fallback_tile_offsets: wgpu::Buffer,
+    fallback_binned_tile_lights: wgpu::Buffer,
+    fallback_active_light_indices: wgpu::Buffer,
     /// One word, every light seen: no terrain shadows local lights.
     fallback_local_visibility: wgpu::Buffer,
     /// One pixel's indirect diffuse (none held): nothing publishes it.
@@ -184,6 +187,24 @@ impl DeferredLightPass {
         });
         let fallback_tile_counts = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Deferred Fallback TileCounts"),
+            size: 4,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let fallback_tile_offsets = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Deferred Fallback Tile Offsets"),
+            size: 4,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let fallback_binned_tile_lights = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Deferred Fallback Binned Tile Lights"),
+            size: 4,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let fallback_active_light_indices = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Deferred Fallback Active Light Indices"),
             size: 4,
             usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
@@ -356,7 +377,7 @@ impl DeferredLightPass {
             entries: &base_group_2_layout(),
         });
 
-        // Group 3: tiled light culling results (tile_light_lists, tile_light_counts).
+        // Group 3: tiled light culling results and the compact live-light list.
         // These are storage buffers written by LightCullPass and consumed here.
         let bgl_3 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("DeferredLight BGL3"),
@@ -365,6 +386,9 @@ impl DeferredLightPass {
                 storage_entry(1), // tile_light_counts
                 storage_entry(2), // local_visibility (terrain shadows of the tile's lights)
                 storage_entry(3), // indirect diffuse a pixel
+                storage_entry(4), // exact per-tile offsets
+                storage_entry(5), // variable-length binned tile lights
+                storage_entry(6), // compact active-list overflow fallback
             ],
         });
 
@@ -792,6 +816,9 @@ impl DeferredLightPass {
             reflection_bind_group_2_key: None,
             fallback_tile_lists,
             fallback_tile_counts,
+            fallback_tile_offsets,
+            fallback_binned_tile_lights,
+            fallback_active_light_indices,
             fallback_local_visibility,
             fallback_indirect_diffuse,
             pre_aa_format,
@@ -1303,11 +1330,32 @@ impl RenderPass for DeferredLightPass {
             .registry
             .buffer_binding(INDIRECT_DIFFUSE)
             .unwrap_or(&self.fallback_indirect_diffuse);
+        let tile_offsets = ctx
+            .registry
+            .get::<&wgpu::Buffer>(helio_core::ResourceKey::new(
+                helio_light_api::TILE_LIGHT_OFFSETS,
+            ))
+            .unwrap_or(&self.fallback_tile_offsets);
+        let binned_tile_lights = ctx
+            .registry
+            .get::<&wgpu::Buffer>(helio_core::ResourceKey::new(
+                helio_light_api::BINNED_TILE_LIGHTS,
+            ))
+            .unwrap_or(&self.fallback_binned_tile_lights);
+        let active_light_indices = ctx
+            .registry
+            .get::<&wgpu::Buffer>(helio_core::ResourceKey::new(
+                helio_light_api::ACTIVE_LIGHT_INDICES,
+            ))
+            .unwrap_or(&self.fallback_active_light_indices);
         let tile_key = [
             tile_lists.clone(),
             tile_counts.clone(),
             local_visibility.clone(),
             gi_irradiance.clone(),
+            tile_offsets.clone(),
+            binned_tile_lights.clone(),
+            active_light_indices.clone(),
         ];
         if self.bind_group_3_key.as_ref() != Some(&tile_key) {
             self.bind_group_3 = Some(ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1329,6 +1377,18 @@ impl RenderPass for DeferredLightPass {
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: gi_irradiance.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: tile_offsets.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: binned_tile_lights.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: active_light_indices.as_entire_binding(),
                     },
                 ],
             }));

@@ -19,10 +19,27 @@ pub use feature::LightCullFeature;
 use bytemuck::{Pod, Zeroable};
 use helio_core::graph::ResourceBuilder;
 use helio_core::{PassContext, PrepareContext, RenderPass, Result as HelioResult};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU8, AtomicU32, Ordering},
+};
 
 // The light list and its binning are the lights' contract (the api's).
 use helio_light_api::*;
 use pulsar_scenedb::gpu::BufferKey;
+
+fn storage_rw_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only: false },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
 
 #[cfg(test)]
 mod tests;
@@ -62,6 +79,14 @@ pub struct LightCullPass {
     /// Storage buffer: one u32 count per tile.
     /// Size: num_tiles * 4 bytes.
     pub tile_light_counts: wgpu::Buffer,
+    /// Per-tile start in `binned_tile_lights`.
+    pub tile_light_offsets: wgpu::Buffer,
+    /// Exact variable-length arena containing every tile/light intersection.
+    pub binned_tile_lights: wgpu::Buffer,
+    light_list_allocator: wgpu::Buffer,
+    tile_count_readback: wgpu::Buffer,
+    tile_count_readback_state: Arc<AtomicU8>,
+    max_tile_light_count: Arc<AtomicU32>,
     /// Cached bind group, rebuilt when camera or lights buffer changes.
     bind_group: Option<wgpu::BindGroup>,
     /// Key: (camera, lights buffer epoch, light_entity_indices,
@@ -77,7 +102,6 @@ pub struct LightCullPass {
     cull_cache_key: Option<(u64, (u64, u64), u32, bool)>,
     num_tiles_x: u32,
     num_tiles_y: u32,
-    num_light_slots: u32,
     width: u32,
     height: u32,
 }
@@ -179,6 +203,12 @@ impl LightCullPass {
                     },
                     count: None,
                 },
+                // 8: exact per-tile offsets
+                storage_rw_entry(8),
+                // 9: compact tile/light arena
+                storage_rw_entry(9),
+                // 10: global allocator cursor
+                storage_rw_entry(10),
             ],
         });
 
@@ -246,6 +276,34 @@ impl LightCullPass {
                 | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
+        let tile_light_offsets = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("TileLightOffsets"),
+            size: count_buf_size.max(4),
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let binned_tile_lights = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("BinnedTileLights"),
+            size: 4,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let light_list_allocator = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("TileLightListAllocator"),
+            size: 4,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let tile_count_readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("TileLightCountReadback"),
+            size: count_buf_size.max(4),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
 
         Self {
             pipeline,
@@ -257,12 +315,17 @@ impl LightCullPass {
             compact_key: None,
             tile_light_lists,
             tile_light_counts,
+            tile_light_offsets,
+            binned_tile_lights,
+            light_list_allocator,
+            tile_count_readback,
+            tile_count_readback_state: Arc::new(AtomicU8::new(0)),
+            max_tile_light_count: Arc::new(AtomicU32::new(0)),
             bind_group: None,
             bind_group_key: None,
             cull_cache_key: None,
             num_tiles_x,
             num_tiles_y,
-            num_light_slots: 0,
             width,
             height,
         }
@@ -279,17 +342,19 @@ impl RenderPass for LightCullPass {
     }
 
     fn diagnostics(&self) -> Option<String> {
-        (self.num_light_slots > MAX_LIGHTS_PER_TILE).then(|| {
-            format!(
-                "WARNING: tiled lighting can exceed its {}-light per-tile list capacity (scene light buffer: {} slots). Overflow tiles now shade against the full light buffer; inspect Lighting: Tile Light Count.",
-                self.num_light_slots, MAX_LIGHTS_PER_TILE
-            )
-        })
+        let max_count = self.max_tile_light_count.load(Ordering::Relaxed);
+        (max_count > MAX_LIGHTS_PER_TILE).then(|| format!(
+            "WARNING: a screen tile has {} affecting light candidates (no lights are dropped). Select Lighting: Tile Light Count to inspect dense areas.",
+            max_count
+        ))
     }
 
     fn declare_resources(&self, builder: &mut ResourceBuilder) {
         builder.write_buffer(helio_light_api::TILE_LIGHT_LISTS);
         builder.write_buffer(helio_light_api::TILE_LIGHT_COUNTS);
+        builder.write_buffer(helio_light_api::TILE_LIGHT_OFFSETS);
+        builder.write_buffer(helio_light_api::BINNED_TILE_LIGHTS);
+        builder.write_buffer(helio_light_api::ACTIVE_LIGHT_INDICES);
     }
 
     fn on_resize(&mut self, device: &wgpu::Device, size: helio_core::RenderSize) {
@@ -319,6 +384,24 @@ impl RenderPass for LightCullPass {
                 | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
+        self.tile_light_offsets = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("TileLightOffsets"),
+            size: count_buf_size.max(4),
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        self.tile_count_readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("TileLightCountReadback"),
+            size: count_buf_size.max(4),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        if self.tile_count_readback_state.load(Ordering::Acquire) != 2 {
+            self.tile_count_readback_state.store(0, Ordering::Release);
+        }
+        self.max_tile_light_count.store(0, Ordering::Release);
 
         self.num_tiles_x = num_tiles_x;
         self.num_tiles_y = num_tiles_y;
@@ -339,6 +422,12 @@ impl RenderPass for LightCullPass {
             unsafe { std::mem::transmute(&self.tile_light_lists) };
         let tile_light_counts: &'a wgpu::Buffer =
             unsafe { std::mem::transmute(&self.tile_light_counts) };
+        let tile_light_offsets: &'a wgpu::Buffer =
+            unsafe { std::mem::transmute(&self.tile_light_offsets) };
+        let binned_tile_lights: &'a wgpu::Buffer =
+            unsafe { std::mem::transmute(&self.binned_tile_lights) };
+        let active_light_indices: &'a wgpu::Buffer =
+            unsafe { std::mem::transmute(&self.active_indices) };
         frame.write(
             helio_core::ResourceKey::new(helio_light_api::TILE_LIGHT_LISTS),
             tile_light_lists,
@@ -350,10 +439,27 @@ impl RenderPass for LightCullPass {
             "LightCull",
         );
         frame.write(
+            helio_core::ResourceKey::new(helio_light_api::TILE_LIGHT_OFFSETS),
+            tile_light_offsets,
+            "LightCull",
+        );
+        frame.write(
+            helio_core::ResourceKey::new(helio_light_api::BINNED_TILE_LIGHTS),
+            binned_tile_lights,
+            "LightCull",
+        );
+        frame.write(
+            helio_core::ResourceKey::new(helio_light_api::ACTIVE_LIGHT_INDICES),
+            active_light_indices,
+            "LightCull",
+        );
+        frame.write(
             helio_core::ResourceKey::new(helio_light_api::CLUSTER_LIGHT_GRID),
             crate::ClusterLightGrid {
                 tile_light_lists,
                 tile_light_counts,
+                tile_light_offsets,
+                binned_tile_lights,
                 num_tiles_x: self.num_tiles_x,
                 num_tiles_y: self.num_tiles_y,
             },
@@ -387,7 +493,31 @@ impl RenderPass for LightCullPass {
         // Every allocated row: the buffer grows with the scene and unused
         // rows are zeroed.
         let num_lights = scene_lights.map_or(0, |lights| lights.row_capacity());
-        self.num_light_slots = num_lights;
+        let tile_count = self.num_tiles_x.saturating_mul(self.num_tiles_y);
+        // Reserve a substantial compact arena independent of the backing
+        // scene buffer's row capacity. That capacity can be 4096 while only a
+        // handful of rows are live. If an unusually dense frame exceeds this
+        // budget, affected tiles use the exact compact-live-list fallback.
+        let required_list_bytes = u64::from(tile_count)
+            .saturating_mul(256)
+            .saturating_mul(4)
+            .max(4)
+            .min(u64::from(
+                ctx.device.limits().max_storage_buffer_binding_size,
+            ));
+        if self.binned_tile_lights.size() < required_list_bytes {
+            self.binned_tile_lights = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("BinnedTileLights"),
+                size: required_list_bytes,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+            self.bind_group = None;
+            self.bind_group_key = None;
+            self.cull_cache_key = None;
+        }
         let required_bytes = (u64::from(num_lights) + 1) * 4;
         if self.active_indices.size() < required_bytes {
             self.active_indices = ctx.device.create_buffer(&wgpu::BufferDescriptor {
@@ -417,6 +547,38 @@ impl RenderPass for LightCullPass {
     }
 
     fn execute(&mut self, ctx: &mut PassContext) -> HelioResult<()> {
+        // Read back the previous exact GPU tile counts asynchronously. This
+        // keeps diagnostics truthful without stalling rendering or treating
+        // the light buffer's row capacity as a live count.
+        if self
+            .tile_count_readback_state
+            .compare_exchange(1, 2, Ordering::AcqRel, Ordering::Relaxed)
+            .is_ok()
+        {
+            let readback = self.tile_count_readback.clone();
+            let mapped_readback = readback.clone();
+            let state = Arc::clone(&self.tile_count_readback_state);
+            let max_count = Arc::clone(&self.max_tile_light_count);
+            readback
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, move |result| {
+                    if result.is_ok() {
+                        let mapped = mapped_readback
+                            .slice(..)
+                            .get_mapped_range()
+                            .expect("mapped tile counts");
+                        let max = bytemuck::cast_slice::<u8, u32>(&mapped)
+                            .iter()
+                            .copied()
+                            .max()
+                            .unwrap_or(0);
+                        max_count.store(max, Ordering::Relaxed);
+                        drop(mapped);
+                        mapped_readback.unmap();
+                    }
+                    state.store(0, Ordering::Release);
+                });
+        }
         let scene_lights_handle = ctx
             .scene_buffers
             .get(BufferKey::of(helio_light_api::LIGHT_LIST));
@@ -558,6 +720,18 @@ impl RenderPass for LightCullPass {
                         binding: 6,
                         resource: self.tile_light_counts.as_entire_binding(),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 8,
+                        resource: self.tile_light_offsets.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 9,
+                        resource: self.binned_tile_lights.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 10,
+                        resource: self.light_list_allocator.as_entire_binding(),
+                    },
                 ],
             }));
             self.bind_group_key = Some(key);
@@ -568,6 +742,7 @@ impl RenderPass for LightCullPass {
         let workgroups = total_tiles.div_ceil(256);
 
         let mut cmds = ctx.graphics_cmds();
+        cmds.clear_buffer(&self.light_list_allocator, 0, Some(4));
         let mut pass = cmds.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("LightCull"),
             timestamp_writes: None,
@@ -575,6 +750,23 @@ impl RenderPass for LightCullPass {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, self.bind_group.as_ref().unwrap(), &[]);
         pass.dispatch_workgroups(workgroups, 1, 1);
+        drop(pass);
+        if self
+            .tile_count_readback_state
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Relaxed)
+            .is_ok()
+        {
+            let bytes = u64::from(total_tiles).saturating_mul(4);
+            if bytes > 0 {
+                cmds.copy_buffer_to_buffer(
+                    &self.tile_light_counts,
+                    0,
+                    &self.tile_count_readback,
+                    0,
+                    bytes,
+                );
+            }
+        }
         Ok(())
     }
 }

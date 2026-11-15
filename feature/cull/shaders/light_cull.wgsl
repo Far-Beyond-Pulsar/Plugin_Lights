@@ -76,6 +76,12 @@ fn compact_lights(@builtin(global_invocation_id) gid: vec3<u32>) {
 // Output: flat arrays, one slot per tile
 @group(0) @binding(5) var<storage, read_write> tile_light_lists:  array<u32>;
 @group(0) @binding(6) var<storage, read_write> tile_light_counts: array<u32>;
+// Variable-length CSR-style tile lists. Each tile reserves exactly `count`
+// slots from the shared arena; offsets are allocation order, not tile order.
+@group(0) @binding(8) var<storage, read_write> tile_light_offsets: array<u32>;
+@group(0) @binding(9) var<storage, read_write> binned_tile_lights: array<u32>;
+struct LightListAllocator { cursor: atomic<u32>, }
+@group(0) @binding(10) var<storage, read_write> light_list_allocator: LightListAllocator;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -214,4 +220,37 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     tile_light_counts[tile_idx] = count;
+
+    // Reserve the exact range this tile needs. If the device binding limit
+    // prevents the worst-case arena from fitting, mark this tile for the
+    // shading pass's exact compact-live-list fallback.
+    let offset = atomicAdd(&light_list_allocator.cursor, count);
+    let list_fits = offset <= arrayLength(&binned_tile_lights)
+        && count <= arrayLength(&binned_tile_lights) - offset;
+    tile_light_offsets[tile_idx] = select(0xffffffffu, offset, list_fits);
+
+    // Re-run the intersection tests to fill the compact range. Culling runs
+    // when the camera/lights change, once per tile, never once per shaded pixel.
+    if !list_fits { return; }
+    var output_slot = 0u;
+    for (var active_slot = 0u; active_slot < light_entity_indices[0]; active_slot++) {
+        let i = light_entity_indices[active_slot + 1u];
+        let light = lights[i];
+        if light.color_intensity.w <= 0.0 { continue; }
+        var intersects = light.light_type == LIGHT_DIRECTIONAL;
+        if !intersects {
+            var world_pos = light.position_range.xyz;
+            if params.light_mode_direct_index == 0u {
+                let entity_idx = light_entity_indices[i];
+                let t = transforms[entity_idx];
+                world_pos = vec3<f32>(t.position[0], t.position[1], t.position[2]);
+            }
+            let pos_vs = (cameras[0].view * vec4<f32>(world_pos, 1.0)).xyz;
+            intersects = sphere_inside_tile_frustum(pos_vs, light.position_range.w, planes);
+        }
+        if intersects {
+            binned_tile_lights[offset + output_slot] = i;
+            output_slot += 1u;
+        }
+    }
 }
