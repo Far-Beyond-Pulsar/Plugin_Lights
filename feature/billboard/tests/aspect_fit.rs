@@ -13,7 +13,7 @@ fn billboard_aspect_fit_shader_and_texture_bindings_validate() {
         pollster::block_on(adapter.request_device(&Default::default())).expect("test device");
     let camera = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Billboard test cameras"),
-        size: 368 * 2,
+        size: 2 * std::mem::size_of::<helio_core::GpuCameraUniforms>() as u64,
         usage: wgpu::BufferUsages::STORAGE,
         mapped_at_creation: false,
     });

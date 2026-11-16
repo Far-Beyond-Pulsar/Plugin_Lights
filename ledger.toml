@@ -170,7 +170,7 @@ status = "unfinished"
 [[pass]]
 crate = "helio-pass-deferred-light"
 in_default_graph = false
-reads = ["environment_probes", "scene_lights", "view_remaps"]
+reads = ["environment_probes", "scene_lights"]
 owner = "helio-presets (mapping); helio-pass-deferred-light (algorithm)"
 disposition = "keep: reads scene_lights (joined from LightSourceRow) and water_volumes (joined from WaterVolumeSourceRow); environment_probes (reflection captures) has no authored producer yet (#1054)"
 target_contract = "Phase 6; 03-gpu-reflection-and-rendering.md"
