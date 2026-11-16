@@ -284,11 +284,9 @@ fn the_light_field_pipelines_build_and_render_on_their_model() {
             helio_light_host::features(),
             tsr,
         );
-        // Under TSR the graph reads the transparency reactive mask, which the
-        // meshes' transparency draws write: a host without them validates the
-        // graph (built above) but cannot run a frame.
-        let frames = if tsr { 0 } else { 3 };
-        for _ in 0..frames {
+        // Every pipeline renders frames, TSR's too: its reactive mask is an
+        // optional input (`tsr_renders_when_no_plugin_writes_the_reactive_mask`).
+        for _ in 0..3 {
             scene.world.flush_gpu_mirror(&queue);
             renderer.render(&camera, &view).expect("light-field frame");
             device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
@@ -326,4 +324,41 @@ fn the_light_field_pipelines_build_and_render_on_their_model() {
     renderer.render(&camera, &view).expect("unlit frame");
     assert!(renderer.find_pass::<HlfsPass>().is_none());
     assert!(renderer.graph_members().contains(&"Unlit"));
+}
+
+/// TSR reads the transparency reactive mask (`helio_frame_api::color::
+/// REACTIVE_MASK`) as an optional input: a graph where no plugin writes it
+/// (the lights alone: no meshes' transparency, no water) builds and renders
+/// its temporal frames, the resolve reading no coverage.
+///
+/// Fails when the mask becomes a required read again (the graph refuses to
+/// route it, or the frame fails validation without a writer).
+#[test]
+fn tsr_renders_when_no_plugin_writes_the_reactive_mask() {
+    let Some((device, queue)) = device() else {
+        eprintln!("GPU_VALIDATION_SKIPPED_NO_ADAPTER: reactive mask without a producer");
+        return;
+    };
+    let view = target(&device, (64, 48));
+    let camera = camera();
+    let errors = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let scene = scene_db(&device, &queue);
+    let mut renderer = light_field_renderer(
+        &device,
+        &queue,
+        &scene,
+        helio_light_host::HLFS,
+        helio_light_host::features(),
+        true,
+    );
+    assert!(renderer.find_pass::<helio_pass_tsr::TsrPass>().is_some());
+    for frame in 0..4 {
+        scene.world.flush_gpu_mirror(&queue);
+        renderer
+            .render(&camera, &view)
+            .unwrap_or_else(|error| panic!("frame {frame}: {error}"));
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    }
+    let error = pollster::block_on(errors.pop());
+    assert!(error.is_none(), "{error:?}");
 }

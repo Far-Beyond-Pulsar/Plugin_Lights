@@ -97,12 +97,12 @@ struct ShadowCasterCounts {
 
 // The frame's view remaps (`helio_frame_api::lighting::VIEW_REMAPS`): per
 // chain, the matrix taking a point of the host world into the world the
-// chain's pixels show (`view_remap_of` tags them). Such a pixel is drawn at a
+// chain's pixels show (`gbuffer_remap_of` reads the tag). Such a pixel is drawn at a
 // transformed copy of its content, so it is lit where the content really is:
 // with that world's lights, sun and sky, not the host's. A uniform for the
 // same reason as the atmosphere: the fragment stage is at its storage-buffer
 // limit.
-@group(0) @binding(11) var<uniform> view_remaps: array<mat4x4<f32>, 256>;
+@group(0) @binding(11) var<uniform> view_remaps: array<mat4x4<f32>, 1024>;
 
 fn complexity_color(value: f32) -> vec3<f32> {
     let t = clamp(value, 0.0, 1.0);
@@ -1043,7 +1043,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     let world_pos_host = world_h.xyz / world_h.w;
 
     // A remapped pixel is shaded where its content really is: back through the chain.
-    let remap_chain = view_remap_of(surface_tag);
+    let remap_chain = gbuffer_remap_of(surface_tag);
     let remapped    = remap_chain >= 0;
     var world_pos = world_pos_host;
     var N         = N_host;
@@ -1457,7 +1457,7 @@ fn fs_reflection(in: VSOut) -> @location(0) vec4<f32> {
     let world_pos_host = world_h.xyz / world_h.w;
 
     // A remapped pixel reflects its content's world, seen from where the eye is in it.
-    let remap_chain = view_remap_of(surface_tag);
+    let remap_chain = gbuffer_remap_of(surface_tag);
     let remapped = remap_chain >= 0;
     var world_pos = world_pos_host;
     var N = N_host;
