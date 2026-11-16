@@ -112,6 +112,7 @@ impl Feature for ShadowViewsFeature {
             )
             // First of the phase's compute: what casts reads the views'
             // dirty flags.
+            .once_per_frame()
             .before_phase(Phase::ShadowCasters, -100),
         );
     }

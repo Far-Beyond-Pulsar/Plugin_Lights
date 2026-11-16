@@ -21,7 +21,7 @@ pub mod gpu_types;
 #[cfg(feature = "host-rows")]
 pub mod host_rows;
 pub use components::REFLECTION_CAPTURES;
-pub use components::{MAX_REFLECTION_CAPTURES, ReflectionCaptureRow};
+pub use components::{ReflectionCaptureRow, MAX_REFLECTION_CAPTURES};
 pub use feature::DeferredLightingFeature;
 pub use gpu_types::*;
 
@@ -877,7 +877,7 @@ impl DeferredLightPass {
 
 impl RenderPass for DeferredLightPass {
     fn scene_buffers(&self) -> &'static [&'static str] {
-        &[VIEW_REMAPS, ENVIRONMENT_PROBES, LIGHT_LIST]
+        &[ENVIRONMENT_PROBES, LIGHT_LIST]
     }
 
     fn name(&self) -> &'static str {
@@ -1411,12 +1411,14 @@ impl RenderPass for DeferredLightPass {
             .registry
             .get::<&wgpu::Buffer>(helio_core::ResourceKey::new(SKY_TABLE))
             .unwrap_or(&self.fallback_sky_table);
+        // The frame's view table: inline views' pixels are lit in their
+        // content's space.
         let view_remaps = ctx
-            .scene_buffers
-            .get(BufferKey::of(VIEW_REMAPS))
+            .registry
+            .get::<&wgpu::Buffer>(helio_core::ResourceKey::new(VIEW_REMAPS))
             .map_or_else(
                 || self.fallback_view_remaps.clone(),
-                |handle| handle.buffer.clone(),
+                |buffer| buffer.clone(),
             );
         let key_0 = [
             ctx.camera.clone(),

@@ -126,7 +126,7 @@ impl Gpu {
         };
         let lights = buf(rows as u64 * 128);
         let matrices = buf(MAX_SHADOW_FACES as u64 * 96);
-        let camera = buf(736);
+        let camera = buf(2 * std::mem::size_of::<helio_core::GpuCameraUniforms>() as u64);
         let pass = ShadowMatrixPass::new(
             &device,
             &lights,
