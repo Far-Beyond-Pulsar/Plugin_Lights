@@ -460,8 +460,11 @@ fn rasterized_depth_preserves_receiver_and_close_contact_shadows() {
             glam::Vec3::new(2.0, 2.0, 6.0),
             glam::Vec3::new(2.0, 2.0, 24.0),
         ] {
-            let view =
-                glam::Mat4::look_at_rh(camera, glam::Vec3::new(0.0, 5.0, -20.0), glam::Vec3::Y);
+            let view = glam::camera::rh::view::look_at_mat4(
+                camera,
+                glam::Vec3::new(0.0, 5.0, -20.0),
+                glam::Vec3::Y,
+            );
             f.scene.camera.update(helio_core::GpuCameraUniforms::new(
                 view,
                 proj,
@@ -518,7 +521,11 @@ fn perspective_depth_error_does_not_shadow_the_receiver_or_erase_nearby_blockers
             let view = if camera == glam::Vec3::ZERO {
                 glam::Mat4::IDENTITY
             } else {
-                glam::Mat4::look_at_rh(camera, glam::Vec3::new(0.0, 5.0, -20.0), glam::Vec3::Y)
+                glam::camera::rh::view::look_at_mat4(
+                    camera,
+                    glam::Vec3::new(0.0, 5.0, -20.0),
+                    glam::Vec3::Y,
+                )
             };
             let vp = proj * view;
             f.scene.camera.update(helio_core::GpuCameraUniforms::new(
@@ -1131,7 +1138,8 @@ fn benchmark_rt_quality_frontier() {
             0.0
         };
         let eye = glam::Vec3::new(x, 0.0, 3.0);
-        let view = glam::Mat4::look_at_rh(eye, glam::Vec3::new(x, 0.0, 0.0), glam::Vec3::Y);
+        let view =
+            glam::camera::rh::view::look_at_mat4(eye, glam::Vec3::new(x, 0.0, 0.0), glam::Vec3::Y);
         (eye, view)
     };
     let update_camera = |f: &mut Fixture, frame: u32| {

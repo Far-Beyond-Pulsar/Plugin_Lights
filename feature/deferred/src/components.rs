@@ -74,6 +74,4 @@ mod tests {
 }
 
 #[cfg(test)]
-mod lifecycle_tests {
-    use super::ReflectionCaptureRow;
-}
+mod lifecycle_tests {}

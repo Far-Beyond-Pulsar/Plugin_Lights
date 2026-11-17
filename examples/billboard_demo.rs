@@ -17,17 +17,12 @@
 //!   Mouse drag  — look around (click to grab cursor)
 //!   Escape      — release cursor / exit
 
-mod common;
-
-use common::{
+use helio::{Camera, Renderer, RendererBuilder, RendererConfig};
+use helio_light_host::BillboardComponent;
+use lights_examples::{
     box_mesh, make_material, new_scene_db_with_gpu_mirror, plane_mesh, point_light,
     scene_db_handle, spawn_light, spawn_material, spawn_mesh, spawn_object,
 };
-use helio::{
-    required_experimental_features, required_wgpu_features, required_wgpu_limits, Camera, Renderer,
-    RendererBuilder, RendererConfig,
-};
-use helio_light_host::BillboardComponent;
 use pulsar_scenedb::SceneDb;
 
 use winit::{
@@ -94,7 +89,6 @@ struct AppState {
     surface_format: wgpu::TextureFormat,
     renderer: Renderer,
     last_frame: std::time::Instant,
-    start_time: std::time::Instant,
 
     cam_pos: glam::Vec3,
     cam_yaw: f32,
@@ -143,7 +137,6 @@ impl ApplicationHandler for App {
         let device = graphics.device.clone();
         let queue = graphics.queue.clone();
         let format = graphics.surface_config.format;
-        let surface_format = format;
 
         let config = RendererConfig::new(size.width, size.height, format);
         let mut scene_db = new_scene_db_with_gpu_mirror(&device, &queue);
@@ -238,7 +231,6 @@ impl ApplicationHandler for App {
             surface_format: format,
             renderer,
             last_frame: std::time::Instant::now(),
-            start_time: std::time::Instant::now(),
             cam_pos: glam::Vec3::new(0.0, 1.6, 0.0),
             cam_yaw: 0.0,
             cam_pitch: 0.0,
@@ -401,7 +393,7 @@ impl AppState {
         // every other example in this crate is missing this call (see the
         // session note filed alongside this example); without it, nothing
         // GPU-mirrored renders, not just billboards.
-        common::flush_scene_db(&self.scene_db, &self.queue);
+        lights_examples::flush_scene_db(&self.scene_db, &self.queue);
 
         if let Err(e) = self.renderer.render_window_frame(&camera, &self.surface) {
             log::error!("Render error: {:?}", e);

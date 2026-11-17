@@ -13,15 +13,10 @@
 //!   G           — toggle gobo on all lights
 //!   Escape      — release / exit
 
-mod common;
-
-use common::{
+use helio::{Camera, Renderer, RendererBuilder, RendererConfig};
+use lights_examples::{
     make_material, new_scene_db_with_gpu_mirror, plane_mesh, scene_db_handle, spawn_light,
     spawn_material, spawn_mesh, spawn_object, update_light, SurfaceCapture,
-};
-use helio::{
-    required_experimental_features, required_wgpu_features, required_wgpu_limits, Camera, Renderer,
-    RendererBuilder, RendererConfig, TonemapOperator,
 };
 use pulsar_scenedb::{Entity, SceneDb};
 
@@ -53,7 +48,6 @@ struct AppState {
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
     device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
     surface_format: wgpu::TextureFormat,
     renderer: Renderer,
     capture: SurfaceCapture,
@@ -287,7 +281,6 @@ impl ApplicationHandler for App {
             window,
             surface,
             device,
-            queue,
             surface_format,
             renderer,
             capture,
@@ -466,7 +459,7 @@ impl ApplicationHandler for App {
 
                 // Upload this frame's SceneDB writes to the GPU mirror; without it they
                 // are never visible to the renderer (Helio#266).
-                common::flush_scene_db(&state.scene_db, state.renderer.queue());
+                lights_examples::flush_scene_db(&state.scene_db, state.renderer.queue());
                 if let Err(e) =
                     state
                         .capture
