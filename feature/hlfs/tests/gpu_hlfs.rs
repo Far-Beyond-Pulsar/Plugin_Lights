@@ -1,4 +1,6 @@
 //! GPU validation is intentional: a Rust build does not validate WGSL or bindings.
+// Shared with gpu_hlfs_rt: the ray-traced fixture half is unused here.
+#[allow(dead_code)]
 mod support;
 
 #[test]
@@ -928,7 +930,7 @@ fn raw_and_filtered_energy_match_at_odd_and_even_sizes() {
 #[test]
 #[ignore = "requires a GPU adapter; run explicitly with --ignored"]
 fn reduced_resolution_tracks_camera_motion() {
-    use glam::{Mat4, Vec3};
+    use glam::Vec3;
     use helio_pass_hlfs::{HlfsConfig, HlfsDebugMode};
     use support::*;
     pollster::block_on(async {
@@ -963,8 +965,12 @@ fn reduced_resolution_tracks_camera_motion() {
                     ..Default::default()
                 });
                 let proj = helio_core::depth::orthographic(-2.0, 2.0, -2.0, 2.0, 0.1, 10.0);
-                let mut previous =
-                    proj * Mat4::look_at_rh(Vec3::new(0.0, 0.0, 3.0), Vec3::ZERO, Vec3::Y);
+                let mut previous = proj
+                    * glam::camera::rh::view::look_at_mat4(
+                        Vec3::new(0.0, 0.0, 3.0),
+                        Vec3::ZERO,
+                        Vec3::Y,
+                    );
                 let mut worst_mean = 0.0f32;
                 let mut worst_rmse = 0.0f32;
                 for frame in 0..64 {
@@ -974,7 +980,11 @@ fn reduced_resolution_tracks_camera_motion() {
                         ((frame - 16) as f32 * 0.1).sin() * 0.75
                     };
                     let position = Vec3::new(x, 0.0, 3.0);
-                    let view = Mat4::look_at_rh(position, Vec3::new(x, 0.0, 0.0), Vec3::Y);
+                    let view = glam::camera::rh::view::look_at_mat4(
+                        position,
+                        Vec3::new(x, 0.0, 0.0),
+                        Vec3::Y,
+                    );
                     for fixture in [&mut f, &mut oracle] {
                         fixture
                             .scene

@@ -5,19 +5,21 @@ edition = "2021"
 publish = false
 description = "Lights (pulsar.lights): the examples whose subject is the lights (IES profiles, many lights, light icons), over Helio's presets with the meshes' and the lights' features"
 
+# `common.rs` is the helpers the three binaries share, built once as the lib.
+[lib]
+name = "lights_examples"
+path = "common.rs"
+
 [dependencies]
 helio-light-host = { workspace = true }
 helio-light-api = { workspace = true, features = ["host-rows"] }
 helio-mesh-host = { workspace = true }
 helio-mesh-api = { workspace = true }
-helio-components = { workspace = true }
 helio = { workspace = true }
 helio-core = { workspace = true }
 helio-mats = { workspace = true, features = ["host-rows"] }
-helio-vg-stream = { workspace = true }
 helio-pass-deferred-light = { workspace = true }
 helio-pass-forward-lit = { workspace = true }
-helio-pass-postprocess = { workspace = true }
 pulsar_scenedb = { workspace = true }
 scenedb-inspector-agent = { workspace = true }
 image = { workspace = true, features = ["png", "jpeg"] }

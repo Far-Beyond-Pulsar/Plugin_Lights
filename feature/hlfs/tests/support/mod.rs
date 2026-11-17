@@ -77,7 +77,8 @@ impl Fixture {
         let mut scene = TestScene::new(device.clone(), queue.clone());
         scene.width = width;
         scene.height = height;
-        let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 3.0), Vec3::ZERO, Vec3::Y);
+        let view =
+            glam::camera::rh::view::look_at_mat4(Vec3::new(0.0, 0.0, 3.0), Vec3::ZERO, Vec3::Y);
         let proj = helio_core::depth::orthographic(-2.0, 2.0, -2.0, 2.0, 0.1, 10.0);
         scene.camera.update(helio_core::GpuCameraUniforms::new(
             view,

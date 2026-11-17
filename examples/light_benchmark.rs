@@ -8,17 +8,13 @@
 //!   +/-                  — increase/decrease light intensity
 //!   Escape               — release cursor / exit
 
-mod common;
-use common::{
+use lights_examples::{
     box_mesh, make_material, new_scene_db_with_gpu_mirror, point_light, scene_db_handle,
     spawn_light, spawn_material, spawn_mesh, spawn_object, update_light,
 };
 use pulsar_scenedb::{Entity, SceneDb, World};
 
-use helio::{
-    required_experimental_features, required_wgpu_features, required_wgpu_limits, Camera, Renderer,
-    RendererBuilder, RendererConfig,
-};
+use helio::{Camera, Renderer, RendererBuilder, RendererConfig};
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -150,7 +146,6 @@ impl ApplicationHandler for App {
         let device = graphics.device.clone();
         let queue = graphics.queue.clone();
         let format = graphics.surface_config.format;
-        let surface_format = format;
         let fmt = format;
 
         let config = RendererConfig::new(size.width, size.height, fmt);
@@ -538,7 +533,7 @@ impl AppState {
             eprintln!("Scene construction took {:.2}ms", scene_build_ms);
         }
 
-        common::flush_scene_db(&self.scene_db, &self.queue);
+        lights_examples::flush_scene_db(&self.scene_db, &self.queue);
         if let Err(e) = self.renderer.render_window_frame(&camera, &self.surface) {
             log::error!("Render error: {:?}", e);
         }

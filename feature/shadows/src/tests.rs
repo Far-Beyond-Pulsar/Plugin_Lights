@@ -535,7 +535,8 @@ fn gpu_tile_sampling_fades_and_honors_author_policy() {
 #[test]
 fn gpu_ranking_prefers_the_lights_nearest_the_camera() {
     let mut gpu = Gpu::new(320, 64);
-    let view = glam::Mat4::look_at_rh(glam::Vec3::ZERO, glam::Vec3::NEG_Z, glam::Vec3::Y);
+    let view =
+        glam::camera::rh::view::look_at_mat4(glam::Vec3::ZERO, glam::Vec3::NEG_Z, glam::Vec3::Y);
     let projection = helio_core::depth::perspective(60f32.to_radians(), 1.0, 0.1);
     let view_proj = projection * view;
     gpu.params.view_proj = view_proj.to_cols_array();
@@ -581,7 +582,8 @@ fn gpu_ranking_prefers_the_lights_nearest_the_camera() {
 /// A crowded scene facing the camera: thousands of point lights competing
 /// for 256 residents and a full atlas (`crowded_lights`).
 fn crowded_lights(gpu: &mut Gpu, rows: u32) -> Vec<[u32; 32]> {
-    let view = glam::Mat4::look_at_rh(glam::Vec3::ZERO, glam::Vec3::NEG_Z, glam::Vec3::Y);
+    let view =
+        glam::camera::rh::view::look_at_mat4(glam::Vec3::ZERO, glam::Vec3::NEG_Z, glam::Vec3::Y);
     let projection = helio_core::depth::perspective(70f32.to_radians(), 16.0 / 9.0, 0.1);
     let view_proj = projection * view;
     gpu.params.view_proj = view_proj.to_cols_array();
@@ -664,7 +666,8 @@ fn gpu_residency_keeps_lights_that_leave_the_view() {
     let mut gpu = Gpu::new(8, 16);
     let projection = helio_core::depth::perspective(60f32.to_radians(), 1.0, 0.1);
     let look = |dir: glam::Vec3| {
-        let vp = projection * glam::Mat4::look_at_rh(glam::Vec3::ZERO, dir, glam::Vec3::Y);
+        let vp =
+            projection * glam::camera::rh::view::look_at_mat4(glam::Vec3::ZERO, dir, glam::Vec3::Y);
         (vp.to_cols_array(), vp.inverse().to_cols_array())
     };
     let (vp, inv) = look(glam::Vec3::NEG_Z);

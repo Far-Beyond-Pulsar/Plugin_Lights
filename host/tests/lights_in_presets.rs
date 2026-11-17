@@ -166,15 +166,14 @@ fn billboards_join_with_their_rows() {
     let mut renderer = renderer(&device, &queue, &scene, (64, 48));
     let view = target(&device, (64, 48));
     let camera = camera();
-    let mut frames =
-        |renderer: &mut helio::Renderer, scene: &mut pulsar_scenedb::SceneDb, count| {
-            for _ in 0..count {
-                scene.world.flush_gpu_mirror(&queue);
-                renderer.render(&camera, &view).unwrap();
-                // Row readbacks complete between frames.
-                device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-            }
-        };
+    let frames = |renderer: &mut helio::Renderer, scene: &mut pulsar_scenedb::SceneDb, count| {
+        for _ in 0..count {
+            scene.world.flush_gpu_mirror(&queue);
+            renderer.render(&camera, &view).unwrap();
+            // Row readbacks complete between frames.
+            device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        }
+    };
     frames(&mut renderer, &mut scene, 4);
     assert!(!renderer.graph_members().contains(&"Billboard"));
     let billboard = scene.world.spawn();
