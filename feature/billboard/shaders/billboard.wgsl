@@ -109,7 +109,8 @@ fn billboard_vertex(vertex_index: u32, inst: BillboardInstance, world_pos: vec3<
     // An instance at the eye cannot be projected: collapse it outside
     // the clip volume.
     let rel = cam_pos - world_pos;
-    if !(dot(rel, rel) > 1e-8) {
+    if !(dot(rel, rel) > 1e-8) ||
+        (occurrence == 0u && !helio_camera_sees_space(cameras[0], u32(inst.world_pos_pad.w))) {
         out.clip_pos = vec4<f32>(0.0, 0.0, -1.0, 1.0);
     }
     out.uv       = quad_uv;

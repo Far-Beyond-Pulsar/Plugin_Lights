@@ -1184,7 +1184,8 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
             let light_idx = candidate_light(tile_lights, i);
             let light = lights[light_idx];
             if light.color_intensity.w <= 0.0 { continue; }
-            if remapped && light_space(light) != content_space { continue; }
+            if select(!helio_camera_sees_space(cameras[0], light_space(light)),
+                      light_space(light) != content_space, remapped) { continue; }
             if light.light_type != 0u {
                 let to_light = light.position_range.xyz - world_pos;
                 let dist = length(to_light);
@@ -1263,7 +1264,8 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
             let light_idx = candidate_light(tile_lights, i);
             let light = lights[light_idx];
             if light.color_intensity.w <= 0.0 { continue; }
-            if remapped && light_space(light) != content_space { continue; }
+            if select(!helio_camera_sees_space(cameras[0], light_space(light)),
+                      light_space(light) != content_space, remapped) { continue; }
             if light.light_type != 0u {
                 let dist = length(light.position_range.xyz - world_pos);
                 if dist > light.position_range.w { continue; }
