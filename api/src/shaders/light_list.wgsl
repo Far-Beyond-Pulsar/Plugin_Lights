@@ -44,6 +44,18 @@ const LIGHT_AREA: u32 = 3u;
 // `shadow_index` of a light with no shadow map.
 const LIGHT_NO_SHADOW: u32 = 0xffffffffu;
 
+const LIGHT_SPACE_SHIFT: u32 = 23u;
+const LIGHT_SPACE_MASK: u32 = 255u;
+
+fn light_space(light: GpuLight) -> u32 {
+    return (light._pad >> LIGHT_SPACE_SHIFT) & LIGHT_SPACE_MASK;
+}
+
+fn light_flags_with_space(flags: u32, space: u32) -> u32 {
+    return (flags & ~(LIGHT_SPACE_MASK << LIGHT_SPACE_SHIFT))
+        | ((space & LIGHT_SPACE_MASK) << LIGHT_SPACE_SHIFT);
+}
+
 // The binning: a pixel's tile is (x, y) / LIGHT_TILE_SIZE, row-major; its
 // lights are `tile_light_lists[tile * LIGHT_MAX_PER_TILE + i]`, `i` below
 // `tile_light_counts[tile]`.

@@ -102,7 +102,8 @@ struct ShadowCasterCounts {
 // with that world's lights, sun and sky, not the host's. A uniform for the
 // same reason as the atmosphere: the fragment stage is at its storage-buffer
 // limit.
-@group(0) @binding(11) var<uniform> view_remaps: array<mat4x4<f32>, 1024>;
+@group(0) @binding(11) var<uniform> view_remaps: HelioViewRemaps;
+@group(0) @binding(12) var<uniform> remap_spaces: HelioViewRemapSpaces;
 
 fn complexity_color(value: f32) -> vec3<f32> {
     let t = clamp(value, 0.0, 1.0);
@@ -222,10 +223,7 @@ const CAPTURE_SHAPE_BOX:    u32 = 1u;
 // Group 3 – tiled light culling results (written by LightCullPass each frame)
 const TILE_SIZE:          u32 = 16u;
 const MAX_LIGHTS_PER_TILE: u32 = 64u;
-// A remapped pixel walks the scene's lights instead of its tile's list (the list
-// is of the host world's view); only its footprint pays.
-const REMAPPED_MAX_LIGHTS: u32 = 256u;
-@group(3) @binding(0) var<storage, read> tile_light_lists:  array<u32>;
+@group(3) @binding(0) var<storage, read> remapped_tile_lights: array<u32>;
 @group(3) @binding(1) var<storage, read> tile_light_counts: array<u32>;
 // The voxel terrain's shadows of local lights (its denoiser's): three words
 // a pixel (rows of the frame): the tile slots of up to four lights it
@@ -253,6 +251,41 @@ fn terrain_light_visibility(at: u32, slot: u32) -> f32 {
 @group(3) @binding(4) var<storage, read> tile_light_offsets: array<u32>;
 @group(3) @binding(5) var<storage, read> binned_tile_lights: array<u32>;
 @group(3) @binding(6) var<storage, read> active_light_indices: array<u32>;
+
+const LIGHT_LIST_BINNED: u32 = 0u;
+const LIGHT_LIST_ACTIVE: u32 = 1u;
+const LIGHT_LIST_REMAPPED: u32 = 2u;
+
+struct TileLights {
+    offset: u32,
+    count: u32,
+    source: u32,
+}
+
+fn tile_lights_for(tile: u32, remapped: bool) -> TileLights {
+    if remapped {
+        let base = tile * (LIGHT_MAX_PER_TILE + 1u);
+        if base + LIGHT_MAX_PER_TILE < arrayLength(&remapped_tile_lights) {
+            let count = remapped_tile_lights[base];
+            if count <= LIGHT_MAX_PER_TILE {
+                return TileLights(base + 1u, count, LIGHT_LIST_REMAPPED);
+            }
+        }
+    } else {
+        let offset = tile_light_offsets[tile];
+        if offset != 0xffffffffu {
+            return TileLights(offset, tile_light_counts[tile], LIGHT_LIST_BINNED);
+        }
+    }
+    return TileLights(1u, active_light_indices[0], LIGHT_LIST_ACTIVE);
+}
+
+fn candidate_light(list: TileLights, index: u32) -> u32 {
+    let at = list.offset + index;
+    if list.source == LIGHT_LIST_BINNED { return binned_tile_lights[at]; }
+    if list.source == LIGHT_LIST_REMAPPED { return remapped_tile_lights[at]; }
+    return active_light_indices[at];
+}
 // cluster bindings removed - GPU-driven architecture
 
 // Cluster constants removed - GPU-driven architecture
@@ -766,16 +799,17 @@ struct Incidence {
     radiance: vec3<f32>,
 }
 
-fn light_incidence(light: GpuLight, world_pos: vec3<f32>) -> Incidence {
+fn light_incidence(light: GpuLight, world_pos: vec3<f32>, eye: vec3<f32>) -> Incidence {
     var L:        vec3<f32>;
     var radiance: vec3<f32>;
 
     if light.light_type == 0u {  // Directional light
         L        = normalize(-light.direction_outer.xyz);
         // A distant light crosses the atmosphere, if any, to reach the point.
-        let through = sky_transmittance_towards(
-            sky_frame, (world_pos - cameras[0].position_near.xyz) * 0.001, L);
-        radiance = light.color_intensity.xyz * light.color_intensity.w * through;
+        radiance = light.color_intensity.xyz * light.color_intensity.w;
+        if light_space(light) == 0u {
+            radiance *= sky_transmittance_towards(sky_frame, (world_pos - eye) * 0.001, L);
+        }
     } else {  // Point or spot light
         let to_light = light.position_range.xyz - world_pos;
         let dist     = length(to_light);
@@ -844,6 +878,7 @@ fn light_incidence(light: GpuLight, world_pos: vec3<f32>) -> Incidence {
 fn pbr_direct_light(
     light:     GpuLight,
     world_pos: vec3<f32>,
+    eye:       vec3<f32>,
     N:         vec3<f32>,
     V:         vec3<f32>,
     F0:        vec3<f32>,
@@ -858,7 +893,7 @@ fn pbr_direct_light(
     has_subsurface: bool,
     subsurface_color: vec3<f32>,
 ) -> vec3<f32> {
-    let incidence = light_incidence(light, world_pos);
+    let incidence = light_incidence(light, world_pos, eye);
     let L = incidence.L;
     let radiance = incidence.radiance;
 
@@ -1048,8 +1083,11 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     var world_pos = world_pos_host;
     var N         = N_host;
     var eye       = cameras[0].position_near.xyz;
+    var content_space = 0u;
     if remapped {
         let unmap = view_remaps[remap_chain];
+        let r = u32(remap_chain);
+        content_space = remap_spaces[r / 4u][r % 4u];
         world_pos = (unmap * vec4<f32>(world_pos_host, 1.0)).xyz;
         N         = normalize((unmap * vec4<f32>(N_host, 0.0)).xyz);
         eye       = (unmap * vec4<f32>(eye, 1.0)).xyz;
@@ -1138,21 +1176,16 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         let tile_x = u32(in.clip_pos.x) / TILE_SIZE;
         let tile_y = u32(in.clip_pos.y) / TILE_SIZE;
         let tile_idx = tile_y * globals.num_tiles_x + tile_x;
-        var light_pass_count = tile_light_counts[tile_idx];
-        let tile_list_overflow = tile_light_offsets[tile_idx] == 0xffffffffu;
-        if tile_list_overflow && !remapped { light_pass_count = active_light_indices[0]; }
-        if remapped { light_pass_count = min(globals.light_count, REMAPPED_MAX_LIGHTS); }
+        let tile_lights = tile_lights_for(tile_idx, remapped);
 
         var affecting_lights = 0.0;
         var shadow_work = 0.0;
-        for (var i = 0u; i < light_pass_count; i++) {
-            var light_idx = i;
-            if !remapped {
-                if tile_list_overflow { light_idx = active_light_indices[i + 1u]; }
-                else { light_idx = binned_tile_lights[tile_light_offsets[tile_idx] + i]; }
-            }
+        for (var i = 0u; i < tile_lights.count; i++) {
+            let light_idx = candidate_light(tile_lights, i);
             let light = lights[light_idx];
             if light.color_intensity.w <= 0.0 { continue; }
+            if select(!helio_camera_sees_space(cameras[0], light_space(light)),
+                      light_space(light) != content_space, remapped) { continue; }
             if light.light_type != 0u {
                 let to_light = light.position_range.xyz - world_pos;
                 let dist = length(to_light);
@@ -1164,7 +1197,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
             // affect every surface. Spot-cone attenuation still costs work and
             // therefore does not darken pixels outside the cone.
             affecting_lights += 1.0;
-            if light.shadow_index != 0xffffffffu && !remapped { shadow_work += 1.0; }
+            if light.shadow_index != 0xffffffffu && (!remapped || (content_space == 0u && light.light_type != 0u)) {
+                shadow_work += 1.0;
+            }
         }
 
         if globals.debug_mode == 50u {
@@ -1223,21 +1258,14 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         let tile_x = u32(in.clip_pos.x) / TILE_SIZE;
         let tile_y = u32(in.clip_pos.y) / TILE_SIZE;
         let tile_idx = tile_y * globals.num_tiles_x + tile_x;
-        var light_pass_count = tile_light_counts[tile_idx];
-        let tile_list_overflow = tile_light_offsets[tile_idx] == 0xffffffffu;
-        if tile_list_overflow && !remapped { light_pass_count = active_light_indices[0]; }
-        if remapped {
-            light_pass_count = min(globals.light_count, REMAPPED_MAX_LIGHTS);
-        }
+        let tile_lights = tile_lights_for(tile_idx, remapped);
         let local_words = 3u * (u32(in.clip_pos.y) * u32(screen_size.x) + u32(in.clip_pos.x));
-        for (var i = 0u; i < light_pass_count; i++) {
-            var light_idx = i;
-            if !remapped {
-                if tile_list_overflow { light_idx = active_light_indices[i + 1u]; }
-                else { light_idx = binned_tile_lights[tile_light_offsets[tile_idx] + i]; }
-            }
+        for (var i = 0u; i < tile_lights.count; i++) {
+            let light_idx = candidate_light(tile_lights, i);
             let light = lights[light_idx];
             if light.color_intensity.w <= 0.0 { continue; }
+            if select(!helio_camera_sees_space(cameras[0], light_space(light)),
+                      light_space(light) != content_space, remapped) { continue; }
             if light.light_type != 0u {
                 let dist = length(light.position_range.xyz - world_pos);
                 if dist > light.position_range.w { continue; }
@@ -1260,21 +1288,22 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
             let back = dot(N, to_light_dir) < -1e-4;
             if back && !two_sided { continue; }
             let N_lit = select(N, -N, back);
-            // A remapped pixel shows another world: the host's shadow maps
-            // say nothing about it. Must be a real `if`, not select():
-            // select() evaluates both arguments, paying for a full PCF/PCSS
-            // shadow sample per light only to throw it away.
+            // Local shadow maps are light-relative and can be sampled in
+            // content space. Directional cascades and screen contact shadows
+            // are built around the primary eye.
             var sf = 1.0;
             var transmit = vec3<f32>(1.0);
             if !remapped {
                 sf = shadow_factor(light_idx, world_pos, N_lit, in.clip_pos.xy, globals.frame);
-                if sf > 0.0 {
-                    transmit = light_transmittance(light_idx, world_pos, N_lit);
-                }
+            } else if content_space == 0u && light.light_type != 0u {
+                sf = raster_shadow_factor(light_idx, world_pos, N_lit, in.clip_pos.xy, globals.frame);
+            }
+            if sf > 0.0 && (!remapped || (content_space == 0u && light.light_type != 0u)) {
+                transmit = light_transmittance(light_idx, world_pos, N_lit);
             }
             // The terrain's shadow of a local light (`local_visibility`).
             if !remapped && light.light_type != 0u && i < 32u {
-                if !tile_list_overflow { sf *= terrain_light_visibility(local_words, i); }
+                if tile_lights.source == LIGHT_LIST_BINNED { sf *= terrain_light_visibility(local_words, i); }
             }
             if !remapped && light.light_type == 0u && i < MAX_LIGHTS_PER_TILE && dot(sun_seen.yzw, sun_seen.yzw) > 0.5 {
                 let light_direction = -normalize(light.direction_outer.xyz);
@@ -1283,12 +1312,12 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                 }
             }
             if back {
-                let incidence = light_incidence(light, world_pos);
+                let incidence = light_incidence(light, world_pos, eye);
                 Lo += transmit * sss_r.rgb / PI * incidence.radiance * max(-dot(N, incidence.L), 0.0) * sf;
                 continue;
             }
             let sss_color = sss_r.rgb;
-            Lo += transmit * pbr_direct_light(light, world_pos, N, V, F0, albedo, roughness, metallic, sf, is_anisotropic, aniso_T, aniso_ax, aniso_ay, has_subsurface, sss_color);
+            Lo += transmit * pbr_direct_light(light, world_pos, eye, N, V, F0, albedo, roughness, metallic, sf, is_anisotropic, aniso_T, aniso_ax, aniso_ay, has_subsurface, sss_color);
         }
     }
 
@@ -1316,7 +1345,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     // the surface (its altitude and sun angle), the lit ground below its
     // horizon included, cosine-convolved.
     var hemi: vec3<f32>;
-    if sky_frame.planet.w > 0.5 {
+    if sky_frame.planet.w > 0.5 && content_space == 0u {
         // The sky over the surface, by its altitude and sun angle, not the
         // eye's.
         hemi = sky_table_eval((world_pos - eye) * 0.001, N, vec3<f32>(1.0)) * albedo;
@@ -1328,12 +1357,12 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     }
     // Where the frame's indirect diffuse holds the point (GI probes' bounce
     // light, a bake's lightmapped irradiance), it replaces the sky's: no sky
-    // where the world hides it (a remapped pixel's is the host's: it keeps
-    // the sky).
+    // where the world hides it. An input contributes only where it has
+    // coverage for the content's actual position and coordinate space.
     let gi_word = u32(in.clip_pos.y) * u32(screen_size.x) + u32(in.clip_pos.x);
     var gi_weight = 0.0;
     var gi = vec3<f32>(0.0);
-    if !remapped && arrayLength(&gi_irradiance) > 1u && gi_word < arrayLength(&gi_irradiance) {
+    if arrayLength(&gi_irradiance) > 1u && gi_word < arrayLength(&gi_irradiance) {
         let g = gi_irradiance[gi_word];
         let ba = unpack2x16float(g.y);
         gi = vec3<f32>(unpack2x16float(g.x), ba.x);

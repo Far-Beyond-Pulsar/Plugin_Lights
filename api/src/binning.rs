@@ -21,6 +21,10 @@ pub const TILE_LIGHT_OFFSETS: &str = "tile_light_offsets";
 pub const BINNED_TILE_LIGHTS: &str = "binned_tile_lights";
 /// Graph key of the compact live-light index buffer (`count`, then row indices).
 pub const ACTIVE_LIGHT_INDICES: &str = "active_light_indices";
+/// Conservative light candidates for pixels with G-buffer remaps. Each tile
+/// has a count followed by up to `MAX_LIGHTS_PER_TILE` sparse light indices.
+/// A larger count selects the exact compact live list.
+pub const REMAPPED_TILE_LIGHTS: &str = "remapped_tile_lights";
 /// Graph key of the binning's frame data ([`ClusterLightGrid`]).
 pub const CLUSTER_LIGHT_GRID: &str = "cluster_light_grid";
 

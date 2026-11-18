@@ -4,17 +4,6 @@
 // stays zero (zero color and intensity: no light). Editor billboards are
 // written alongside when enabled.
 
-/// `helio::GpuLight` (128 bytes): three vec4s, then 20 scalar words.
-/// Word 3 of `rest` is `_pad` (the shadow intent and policy bits). In the
-/// input (`helio_component::LightSourceRow`) its bit 31, which `_pad` leaves
-/// unused, is the authored `enabled` flag; the output clears it.
-struct Light {
-    position_range: array<f32, 4>,
-    direction_outer: array<f32, 4>,
-    color_intensity: array<f32, 4>,
-    rest: array<u32, 20>,
-}
-
 /// `helio_pass_billboard::BillboardComponent` (48 bytes).
 struct Billboard {
     world_pos: array<f32, 4>,
@@ -37,11 +26,11 @@ struct LightJoinUniforms {
 @group(0) @binding(2) var<storage, read> generations: array<u32>;
 @group(0) @binding(3) var<storage, read> hidden: array<u32>;
 @group(0) @binding(4) var<storage, read> transforms: array<ObjectTransform>;
-@group(0) @binding(5) var<storage, read> sources: array<Light>;
-@group(0) @binding(6) var<storage, read_write> lights_out: array<Light>;
+@group(0) @binding(5) var<storage, read> sources: array<GpuLight>;
+@group(0) @binding(6) var<storage, read_write> lights_out: array<GpuLight>;
 @group(0) @binding(7) var<storage, read_write> billboards_out: array<Billboard>;
+@group(0) @binding(8) var<storage, read> object_spaces: array<u32>;
 
-const ENABLED_WORD: u32 = 3u;
 const ENABLED_BIT: u32 = 0x80000000u;
 
 @compute @workgroup_size(64)
@@ -51,7 +40,7 @@ fn cs_join_lights(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     var light = sources[row];
-    if (light.rest[ENABLED_WORD] & ENABLED_BIT) == 0u {
+    if (light._pad & ENABLED_BIT) == 0u {
         return;
     }
     let owner = owners[row];
@@ -73,23 +62,19 @@ fn cs_join_lights(@builtin(global_invocation_id) gid: vec3<u32>) {
     // The authored row carries a per-light local direction. This allows
     // multiple LightComponents on one sky object to have independent emitter
     // directions while inheriting the object's world rotation.
-    let local_direction = normalize(vec3<f32>(
-        light.direction_outer[0],
-        light.direction_outer[1],
-        light.direction_outer[2],
-    ));
+    let local_direction = normalize(light.direction_outer.xyz);
     let direction = object_rotation(t) * local_direction;
-    light.position_range[0] = relative.x;
-    light.position_range[1] = relative.y;
-    light.position_range[2] = relative.z;
-    light.direction_outer[0] = direction.x;
-    light.direction_outer[1] = direction.y;
-    light.direction_outer[2] = direction.z;
-    light.rest[ENABLED_WORD] = light.rest[ENABLED_WORD] & ~ENABLED_BIT;
+    light.position_range = vec4<f32>(relative, light.position_range.w);
+    light.direction_outer = vec4<f32>(direction, light.direction_outer.w);
+    var space = 0u;
+    if index < arrayLength(&object_spaces) {
+        space = object_spaces[index];
+    }
+    light._pad = light_flags_with_space(light._pad & ~ENABLED_BIT, space);
     lights_out[row] = light;
     if u.billboards != 0u && row < arrayLength(&billboards_out) {
         billboards_out[row] = Billboard(
-            array<f32, 4>(relative.x, relative.y, relative.z, 0.0),
+            array<f32, 4>(relative.x, relative.y, relative.z, f32(space)),
             array<f32, 4>(0.04, 0.04, 1.0, 0.0),
             array<f32, 4>(light.color_intensity[0], light.color_intensity[1], light.color_intensity[2], 1.0),
         );

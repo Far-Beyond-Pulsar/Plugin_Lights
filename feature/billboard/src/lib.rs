@@ -10,6 +10,7 @@ pub use feature::BillboardFeature;
 use bytemuck::{Pod, Zeroable};
 use helio_core::graph::ResourceBuilder;
 use helio_core::{PassContext, PrepareContext, RenderPass, Result as HelioResult};
+use helio_portal_api::{PORTAL_CHAINS, PORTAL_CHAIN_COUNT, PORTAL_MASK, PORTAL_STAGES};
 
 pub mod components;
 #[cfg(feature = "host-rows")]
@@ -25,14 +26,15 @@ pub type BillboardInstance = BillboardRow;
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct BillboardGlobals {
-    frame: u32,
-    delta_time: f32,
-    ambient_intensity: f32,
-    _pad: f32,
+    instance_count: u32,
+    _pad: [u32; 3],
 }
 
 pub struct BillboardPass {
     pipeline: wgpu::RenderPipeline,
+    portal_pipeline: wgpu::RenderPipeline,
+    portal_layout: wgpu::BindGroupLayout,
+    portal_group: helio_core::CachedBindGroup,
     #[allow(dead_code)]
     bgl_0: wgpu::BindGroupLayout,
     #[allow(dead_code)]
@@ -48,7 +50,6 @@ pub struct BillboardPass {
     /// changed epoch means the SceneDB buffer reallocated (grew) and bind
     /// group 0 must be rebuilt to point at the new one.
     scene_binding_epoch: Option<u64>,
-    quad_vertex_buf: wgpu::Buffer,
     pub instance_count: u32,
     occluded_by_geometry: bool,
     #[allow(dead_code)]
@@ -76,10 +77,11 @@ impl BillboardPass {
         camera_buf: &wgpu::Buffer,
         target_format: wgpu::TextureFormat,
     ) -> Self {
-        let shader = helio_core::shader::module(
+        let shader = helio_core::shader::module_with(
             device,
             "Billboard Shader",
             helio_core::include_wgsl!("../shaders/billboard.wgsl"),
+            &[helio_portal_api::PORTAL_CHAIN_SNIPPET],
         );
 
         let globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
@@ -95,7 +97,7 @@ impl BillboardPass {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
@@ -212,34 +214,33 @@ impl BillboardPass {
             ],
         });
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Billboard PL"),
-            bind_group_layouts: &[Some(&bgl_0), Some(&bgl_1)],
-            immediate_size: 0,
+        let portal_storage = |binding, visibility| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        };
+        let portal_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Billboard Portal Layout"),
+            entries: &[
+                portal_storage(0, wgpu::ShaderStages::VERTEX_FRAGMENT),
+                portal_storage(1, wgpu::ShaderStages::FRAGMENT),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+            ],
         });
-
-        // ── Quad vertex buffer (6 vertices: 2 triangles CCW) ─────────────────
-        // Each vertex: [pos.x, pos.y, uv.x, uv.y]
-        let quad_verts: [[f32; 4]; 6] = [
-            [-0.5, -0.5, 0.0, 0.0],
-            [0.5, -0.5, 1.0, 0.0],
-            [-0.5, 0.5, 0.0, 1.0],
-            [-0.5, 0.5, 0.0, 1.0],
-            [0.5, -0.5, 1.0, 0.0],
-            [0.5, 0.5, 1.0, 1.0],
-        ];
-        let quad_vertex_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Billboard Quad VB"),
-            size: std::mem::size_of_val(&quad_verts) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        helio_core::upload::write_buffer(
-            queue,
-            &quad_vertex_buf,
-            0,
-            bytemuck::cast_slice(&quad_verts),
-        );
 
         // ── Instance buffer ───────────────────────────────────────────────────
         let instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
@@ -271,83 +272,69 @@ impl BillboardPass {
         });
 
         // ── Render pipeline ───────────────────────────────────────────────────
-        let pipeline = helio_core::shader::create_render_pipeline(
-            &device,
-            wgpu::RenderPipelineDescriptor {
-                label: Some("Billboard Pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    // Slot 0 only: the quad's per-vertex position/uv. Billboard
-                    // instance data (world_pos/scale_flags/color) is read from
-                    // the storage buffer bound at bind_group_0 binding 2
-                    // (`instances[instance_index]` in the shader) -- there is no
-                    // `@location`-based per-instance vertex input in `vs_main`
-                    // (only `@builtin(vertex_index)`/`@builtin(instance_index)`),
-                    // so a second, `Instance`-stepped vertex buffer slot here was
-                    // stale: it made this pipeline require a vertex buffer at
-                    // index 1 that `execute()` correctly never had a reason to
-                    // bind, since nothing reads it.
-                    buffers: &[
-                        // Slot 0: per-vertex quad data  (stride 16)
-                        Some(wgpu::VertexBufferLayout {
-                            array_stride: 16,
-                            step_mode: wgpu::VertexStepMode::Vertex,
-                            attributes: &[
-                                wgpu::VertexAttribute {
-                                    format: wgpu::VertexFormat::Float32x2,
-                                    offset: 0,
-                                    shader_location: 0,
+        let make_pipeline = |label, vertex, fragment, portal| {
+            let layouts = [Some(&bgl_0), Some(&bgl_1), Some(&portal_layout)];
+            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some(label),
+                bind_group_layouts: &layouts[..if portal { 3 } else { 2 }],
+                immediate_size: 0,
+            });
+            helio_core::shader::create_render_pipeline(
+                device,
+                wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some(vertex),
+                        compilation_options: Default::default(),
+                        buffers: &[],
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some(fragment),
+                        compilation_options: Default::default(),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: target_format,
+                            blend: Some(wgpu::BlendState {
+                                color: wgpu::BlendComponent {
+                                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                    operation: wgpu::BlendOperation::Add,
                                 },
-                                wgpu::VertexAttribute {
-                                    format: wgpu::VertexFormat::Float32x2,
-                                    offset: 8,
-                                    shader_location: 1,
-                                },
-                            ],
-                        }),
-                    ],
+                                alpha: wgpu::BlendComponent::OVER,
+                            }),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        cull_mode: None, // billboards are always camera-facing
+                        ..Default::default()
+                    },
+                    // Depth read-only: billboards depth-test against scene geometry but don't write depth.
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: wgpu::TextureFormat::Depth32Float,
+                        depth_write_enabled: Some(false),
+                        depth_compare: Some(helio_core::depth::NEARER_EQUAL),
+                        stencil: wgpu::StencilState::default(),
+                        bias: wgpu::DepthBiasState::default(),
+                    }),
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: None,
                 },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some("fs_main"),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: target_format,
-                        blend: Some(wgpu::BlendState {
-                            color: wgpu::BlendComponent {
-                                src_factor: wgpu::BlendFactor::SrcAlpha,
-                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                                operation: wgpu::BlendOperation::Add,
-                            },
-                            alpha: wgpu::BlendComponent::OVER,
-                        }),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: None, // billboards are always camera-facing
-                    ..Default::default()
-                },
-                // Depth read-only: billboards depth-test against scene geometry but don't write depth.
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: Some(false),
-                    depth_compare: Some(helio_core::depth::NEARER_EQUAL),
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            },
-        );
+            )
+        };
+        let pipeline = make_pipeline("Billboard Pipeline", "vs_main", "fs_main", false);
+        let portal_pipeline =
+            make_pipeline("Billboard Portal Pipeline", "vs_portal", "fs_portal", true);
 
         Self {
             pipeline,
+            portal_pipeline,
+            portal_layout,
+            portal_group: helio_core::CachedBindGroup::new(),
             bgl_0,
             bgl_1,
             bind_group_0,
@@ -355,7 +342,6 @@ impl BillboardPass {
             globals_buf,
             instance_buf,
             scene_binding_epoch: None,
-            quad_vertex_buf,
             instance_count: 0,
             occluded_by_geometry: true,
             white_texture,
@@ -480,6 +466,9 @@ impl RenderPass for BillboardPass {
         builder.read(helio_frame_api::color::SCENE_COLOR);
         builder.read(helio_frame_api::depth::FULL_RES_DEPTH);
         builder.read("billboards");
+        builder.read_optional(PORTAL_CHAINS);
+        builder.read_optional(PORTAL_STAGES);
+        builder.read_optional(PORTAL_MASK);
     }
 
     fn prepare(&mut self, ctx: &PrepareContext) -> HelioResult<()> {
@@ -526,10 +515,8 @@ impl RenderPass for BillboardPass {
             }
         }
         let globals = BillboardGlobals {
-            frame: ctx.frame_num as u32,
-            delta_time: 0.0,
-            ambient_intensity: 1.0,
-            _pad: 0.0,
+            instance_count: self.instance_count,
+            _pad: [0; 3],
         };
         ctx.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
         Ok(())
@@ -599,12 +586,57 @@ impl RenderPass for BillboardPass {
         if self.instance_count == 0 {
             return Ok(());
         }
+        let count = ctx.registry.get(PORTAL_CHAIN_COUNT).unwrap_or_default();
+        let portal_group = match (
+            wgpu::BufferSize::new(
+                u64::from(count) * size_of::<helio_portal_api::GpuPortalChain>() as u64,
+            ),
+            ctx.registry.buffer_binding(PORTAL_CHAINS),
+            ctx.registry.buffer_binding(PORTAL_STAGES),
+            ctx.registry
+                .texture_view(helio_core::ResourceKey::new(PORTAL_MASK)),
+        ) {
+            (Some(size), Some(chains), Some(stages), Some(mask)) => {
+                Some(self.portal_group.get_or_create(
+                    ctx.device,
+                    &wgpu::BindGroupDescriptor {
+                        label: Some("Billboard Portals"),
+                        layout: &self.portal_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                    buffer: chains,
+                                    offset: 0,
+                                    size: Some(size),
+                                }),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: stages.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: wgpu::BindingResource::TextureView(mask),
+                            },
+                        ],
+                    },
+                ))
+            }
+            _ => None,
+        };
         let mut rp = ctx.render_cmds().unwrap();
-        rp.set_pipeline(&self.pipeline);
+        let draws = if let Some(group) = portal_group {
+            rp.set_pipeline(&self.portal_pipeline);
+            rp.set_bind_group(2, group, &[]);
+            self.instance_count * (count + 1)
+        } else {
+            rp.set_pipeline(&self.pipeline);
+            self.instance_count
+        };
         rp.set_bind_group(0, &self.bind_group_0, &[]);
         rp.set_bind_group(1, &self.bind_group_1, &[]);
-        rp.set_vertex_buffer(0, self.quad_vertex_buf.slice(..));
-        rp.draw(0..6, 0..self.instance_count);
+        rp.draw(0..6, 0..draws);
         Ok(())
     }
 }

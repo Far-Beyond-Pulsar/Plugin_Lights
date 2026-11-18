@@ -141,6 +141,8 @@ pub struct GpuLight {
     /// Bits 2-3 belong to the GPU caster allocation: bit 3 marks a row it has
     /// rewritten, bit 2 the shadow-map request it replaced. Authors leave
     /// them clear; a SceneDB re-upload of the row clears them.
+    /// Bits 23–30 carry the originating coordinate-space slot, set by the
+    /// scene join (zero for standalone/ordinary world-space rows).
     pub _pad: u32,
 
     // ── Light shafts / god rays (volumetric fog pass) ──
