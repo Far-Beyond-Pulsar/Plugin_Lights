@@ -14,6 +14,7 @@ host-rows = ["dep:helio-components", "dep:pulsar_scenedb_derive", "dep:serde_jso
 
 [dependencies]
 helio-frame-api = { workspace = true }
+helio-portal-api = { workspace = true }
 helio-feature-api = { workspace = true }
 image = { workspace = true, features = ["png"] }
 pulsar_reflection = { workspace = true }

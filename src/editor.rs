@@ -1,6 +1,7 @@
 //! What the lights plugin registers for the editor (the `editor` feature):
 //! its level editor entries.
 
+use engine_backend::subsystems::render::EditorLinesRegistration;
 use lights_editor::level_editor;
 use ui_level_editor::extend::{
     CreateEntry, EnvironmentListing, EnvironmentPreset, ObjectIconRegistration,
@@ -24,6 +25,12 @@ macro_rules! menu_lights {
 
 /// Everything the plugin registers for the editor.
 pub(crate) fn build(p: &mut pulsar_plugins::PluginBuilder) {
+    p.add(EditorLinesRegistration {
+        origin: p.origin(),
+        name: "lights.selection_guides",
+        new: |_| Box::new(lights_editor::selection_guides::SelectionGuides::default()),
+    });
+
     // ── Hierarchy ───────────────────────────────────────────────────────────
 
     // An object holding a light shows as one.

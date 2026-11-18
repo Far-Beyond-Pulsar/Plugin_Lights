@@ -10,7 +10,7 @@ use helio_frame_api::lighting::sky::{
 use helio_frame_api::lighting::{
     DIRECTIONAL_VISIBILITY, ENVIRONMENT_CUBES, ENVIRONMENT_CUBES_SAMPLER, ENVIRONMENT_PROBES,
     INDIRECT_DIFFUSE, INDIRECT_SPECULAR_LAYERS, SUN_VISIBILITY, TRANSMISSION, VIEW_REMAPS,
-    VIEW_REMAPS_BYTES,
+    VIEW_REMAPS_BYTES, VIEW_REMAP_SPACES, VIEW_REMAP_SPACES_BYTES,
 };
 use helio_light_api::LIGHT_LIST;
 use pulsar_scenedb::gpu::BufferKey;
@@ -18,6 +18,7 @@ use pulsar_scenedb::gpu::BufferKey;
 mod components;
 pub mod feature;
 pub mod gpu_types;
+mod remapped_tiles;
 #[cfg(feature = "host-rows")]
 pub mod host_rows;
 pub use components::REFLECTION_CAPTURES;
@@ -99,9 +100,8 @@ pub struct DeferredLightPass {
     fallback_atmosphere: wgpu::Buffer,
     fallback_sky_table: wgpu::Buffer,
     fallback_view_remaps: wgpu::Buffer,
-    /// `(camera, shadow caster counts, atmosphere, sky table, view remaps)` `bind_group_0` was
-    /// built against.
-    bind_group_0_key: Option<[wgpu::Buffer; 5]>,
+    /// The camera, caster counts, sky data and remap tables bound in group 0.
+    bind_group_0_key: Option<[wgpu::Buffer; 6]>,
     bgl_1: wgpu::BindGroupLayout,
     bgl_2: wgpu::BindGroupLayout,
     bgl_3: wgpu::BindGroupLayout,
@@ -126,7 +126,6 @@ pub struct DeferredLightPass {
     bind_group_3_key: Option<[wgpu::Buffer; 7]>,
     reflection_bind_group_1_key: Option<Vec<wgpu::TextureView>>,
     reflection_bind_group_2_key: Option<([wgpu::TextureView; 4], wgpu::Sampler, wgpu::Buffer)>,
-    fallback_tile_lists: wgpu::Buffer,
     fallback_tile_counts: wgpu::Buffer,
     fallback_tile_offsets: wgpu::Buffer,
     fallback_binned_tile_lights: wgpu::Buffer,
@@ -179,12 +178,6 @@ impl DeferredLightPass {
         pre_aa_format: wgpu::TextureFormat,
     ) -> Self {
         // Fallback 1-entry storage buffers used when LightCullPass is absent.
-        let fallback_tile_lists = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Deferred Fallback TileLists"),
-            size: 4,
-            usage: wgpu::BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
         let fallback_tile_counts = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Deferred Fallback TileCounts"),
             size: 4,
@@ -332,6 +325,16 @@ impl DeferredLightPass {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 12,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(VIEW_REMAP_SPACES_BYTES),
+                    },
+                    count: None,
+                },
             ],
         });
         // Bound until view remaps are published; never read then, because only
@@ -382,7 +385,7 @@ impl DeferredLightPass {
         let bgl_3 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("DeferredLight BGL3"),
             entries: &[
-                storage_entry(0), // tile_light_lists
+                storage_entry(0), // remapped tile lights
                 storage_entry(1), // tile_light_counts
                 storage_entry(2), // local_visibility (terrain shadows of the tile's lights)
                 storage_entry(3), // indirect diffuse a pixel
@@ -434,6 +437,10 @@ impl DeferredLightPass {
                 },
                 wgpu::BindGroupEntry {
                     binding: 11,
+                    resource: fallback_view_remaps.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 12,
                     resource: fallback_view_remaps.as_entire_binding(),
                 },
             ],
@@ -814,7 +821,6 @@ impl DeferredLightPass {
             bind_group_3_key: None,
             reflection_bind_group_1_key: None,
             reflection_bind_group_2_key: None,
-            fallback_tile_lists,
             fallback_tile_counts,
             fallback_tile_offsets,
             fallback_binned_tile_lights,
@@ -910,7 +916,6 @@ impl RenderPass for DeferredLightPass {
             SKY_TABLE,
             SUN_VISIBILITY,
             "ssao",
-            helio_light_api::TILE_LIGHT_LISTS,
             helio_light_api::TILE_LIGHT_COUNTS,
             INDIRECT_DIFFUSE,
             helio_core::resource_keys::RENDER_ENVIRONMENT,
@@ -922,6 +927,7 @@ impl RenderPass for DeferredLightPass {
     }
 
     fn declare_resources(&self, builder: &mut ResourceBuilder) {
+        builder.read_optional(helio_light_api::REMAPPED_TILE_LIGHTS);
         builder.write_color_raw(
             helio_frame_api::color::SCENE_COLOR,
             self.pre_aa_format,
@@ -1307,12 +1313,10 @@ impl RenderPass for DeferredLightPass {
         }
 
         // ── Bind group 3: tile light culling results ──────────────────────────
-        let tile_lists = ctx
+        let remapped_lights = ctx
             .registry
-            .get::<&wgpu::Buffer>(helio_core::ResourceKey::new(
-                helio_light_api::TILE_LIGHT_LISTS,
-            ))
-            .unwrap_or(&self.fallback_tile_lists);
+            .buffer_binding(helio_light_api::REMAPPED_TILE_LIGHTS)
+            .unwrap_or(&self.fallback_tile_counts);
         let tile_counts = ctx
             .registry
             .get::<&wgpu::Buffer>(helio_core::ResourceKey::new(
@@ -1349,7 +1353,7 @@ impl RenderPass for DeferredLightPass {
             ))
             .unwrap_or(&self.fallback_active_light_indices);
         let tile_key = [
-            tile_lists.clone(),
+            remapped_lights.clone(),
             tile_counts.clone(),
             local_visibility.clone(),
             gi_irradiance.clone(),
@@ -1364,7 +1368,7 @@ impl RenderPass for DeferredLightPass {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: tile_lists.as_entire_binding(),
+                        resource: remapped_lights.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -1420,12 +1424,17 @@ impl RenderPass for DeferredLightPass {
                 || self.fallback_view_remaps.clone(),
                 |buffer| buffer.clone(),
             );
+        let remap_spaces = ctx
+            .registry
+            .buffer_binding(VIEW_REMAP_SPACES)
+            .unwrap_or(&self.fallback_view_remaps);
         let key_0 = [
             ctx.camera.clone(),
             caster_counts.clone(),
             atmosphere.clone(),
             sky_table.clone(),
             view_remaps.clone(),
+            remap_spaces.clone(),
         ];
         if self.bind_group_0_key.as_ref() != Some(&key_0) {
             self.bind_group_0 = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1459,6 +1468,10 @@ impl RenderPass for DeferredLightPass {
                     wgpu::BindGroupEntry {
                         binding: 11,
                         resource: view_remaps.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 12,
+                        resource: remap_spaces.as_entire_binding(),
                     },
                 ],
             });

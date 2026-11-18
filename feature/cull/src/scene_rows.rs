@@ -9,6 +9,7 @@ use helio_scene_join::{
     entry, origin_bits, origin_pair, rows_of, signature, BufferHandle, BufferKey, JoinOutput,
     SceneBufferProjection, SceneDerivation, SceneDerivationContext, SceneDerivationOutput,
     GENERATION_ROW_BYTES, HIDDEN_ROW_BYTES, OWNER_ROW_BYTES, TRANSFORM_ROW_BYTES,
+    OBJECT_SPACE_KEY,
 };
 
 /// A `GpuLight` in light space, bit 31 of its `_pad` word carrying `enabled`.
@@ -23,7 +24,11 @@ pub const BILLBOARDS_KEY: BufferKey = helio_pass_billboard::BILLBOARD_INSTANCES.
 
 /// The light join's shader as compiled (shader validation without a device).
 pub fn light_join_source() -> String {
-    helio_scene_join::join_source(include_str!("../shaders/scene_join_lights.wgsl"))
+    helio_scene_join::join_source(&format!(
+        "{}\n{}",
+        crate::LIGHT_LIST_SNIPPET.source,
+        include_str!("../shaders/scene_join_lights.wgsl")
+    ))
 }
 
 /// Where the rows the light join reads live.
@@ -150,6 +155,7 @@ impl SceneDerivation for LightJoin {
         let hidden = self.input(inputs, keys.hidden, HIDDEN_ROW_BYTES);
         let transforms = self.input(inputs, keys.transforms, TRANSFORM_ROW_BYTES);
         let sources = self.input(inputs, keys.light_sources, LIGHT_SOURCE_ROW_BYTES);
+        let spaces = self.input(inputs, OBJECT_SPACE_KEY, 4);
         let (origin_hi, origin_lo) = origin_pair(ctx.world_origin);
         let [ox, oy, oz] = origin_bits(ctx.world_origin);
         let mut recorded = false;
@@ -158,7 +164,7 @@ impl SceneDerivation for LightJoin {
         let grew = self.lights.ensure(ctx.device, light_rows)
             | (self.billboards && self.billboard_rows.ensure(ctx.device, light_rows));
         let light_signature = signature(
-            &[owners, generations, hidden, transforms, sources],
+            &[owners, generations, hidden, transforms, sources, spaces],
             &[
                 self.lights.epoch,
                 self.billboard_rows.epoch,
@@ -197,6 +203,7 @@ impl SceneDerivation for LightJoin {
                     &sources.buffer,
                     &self.lights.buffer,
                     &self.billboard_rows.buffer,
+                    spaces.map_or(&self.empty, |h| &h.buffer),
                 ];
                 let reusable = self.bind.as_ref().is_some_and(|(buffers, _)| {
                     buffers.iter().zip(bound).all(|(cached, now)| cached == now)
@@ -215,6 +222,7 @@ impl SceneDerivation for LightJoin {
                             entry(5, bound[4]),
                             entry(6, bound[5]),
                             entry(7, bound[6]),
+                            entry(8, bound[7]),
                         ],
                     });
                     self.bind = Some((bound.iter().map(|b| (*b).clone()).collect(), bind_group));

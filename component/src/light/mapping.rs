@@ -32,9 +32,10 @@ impl super::LightComponentGpuMirror {
     /// Translates whatever row it is given; a disabled light's row carries
     /// `general.enabled == 0`, and consumers skip it.
     pub fn to_helio_gpu_light(&self) -> GpuLight {
+        let [x, y, z] = super::LOCAL_LIGHT_DIRECTION;
         GpuLight {
             position_range: [0.0, 0.0, 0.0, self.attenuation.range.0],
-            direction_outer: [0.0, -1.0, 0.0, self.attenuation.outer_cone_angle.0],
+            direction_outer: [x, y, z, self.attenuation.outer_cone_angle.0],
             color_intensity: [
                 self.color.color.0[0],
                 self.color.color.0[1],
