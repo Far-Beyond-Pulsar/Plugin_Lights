@@ -30,19 +30,24 @@ fn blocker(f: &mut Fixture, x: f32) {
     let mut encoder = f.device.create_command_encoder(&Default::default());
     f.scene
         .blas_manager
-        .build_from_buffers(
+        .build(
             1,
             &mut encoder,
-            BlasGeometry {
-                revision: 0,
-                vertices: &vertices,
-                first_vertex: 0,
-                vertex_count: 3,
-                vertex_stride: 12,
-                indices: None,
-                first_index: 0,
-                index_count: 0,
-            },
+            vec![helio_core::BlasSegment {
+                geometry: BlasGeometry {
+                    positions_revision: 0,
+                    topology_revision: 0,
+                    vertices: &vertices,
+                    first_vertex: 0,
+                    vertex_count: 3,
+                    vertex_stride: 12,
+                    indices: None,
+                    first_index: 0,
+                    index_count: 0,
+                },
+                opaque: true,
+            }],
+            helio_core::Movability::Static,
         )
         .unwrap();
     f.scene
@@ -415,19 +420,24 @@ fn receiver_plane(f: &mut Fixture, z: f32) {
     let mut encoder = f.device.create_command_encoder(&Default::default());
     f.scene
         .blas_manager
-        .build_from_buffers(
+        .build(
             1,
             &mut encoder,
-            BlasGeometry {
-                revision: 0,
-                vertices: &vertices,
-                first_vertex: 0,
-                vertex_count: 3,
-                vertex_stride: 12,
-                indices: None,
-                first_index: 0,
-                index_count: 0,
-            },
+            vec![helio_core::BlasSegment {
+                geometry: BlasGeometry {
+                    positions_revision: 0,
+                    topology_revision: 0,
+                    vertices: &vertices,
+                    first_vertex: 0,
+                    vertex_count: 3,
+                    vertex_stride: 12,
+                    indices: None,
+                    first_index: 0,
+                    index_count: 0,
+                },
+                opaque: true,
+            }],
+            helio_core::Movability::Static,
         )
         .unwrap();
     f.scene
@@ -690,19 +700,24 @@ fn benchmark_rt_resolution_and_acceleration() {
             let mut encoder = f.device.create_command_encoder(&Default::default());
             f.scene
                 .blas_manager
-                .build_from_buffers(
+                .build(
                     1,
                     &mut encoder,
-                    BlasGeometry {
-                        revision: 0,
-                        vertices: &vertices,
-                        first_vertex: 0,
-                        vertex_count: caster_vertices.len() as u32 / 3,
-                        vertex_stride: 12,
-                        indices: None,
-                        first_index: 0,
-                        index_count: 0,
-                    },
+                    vec![helio_core::BlasSegment {
+                        geometry: BlasGeometry {
+                            positions_revision: 0,
+                            topology_revision: 0,
+                            vertices: &vertices,
+                            first_vertex: 0,
+                            vertex_count: caster_vertices.len() as u32 / 3,
+                            vertex_stride: 12,
+                            indices: None,
+                            first_index: 0,
+                            index_count: 0,
+                        },
+                        opaque: true,
+                    }],
+                    helio_core::Movability::Static,
                 )
                 .unwrap();
             f.queue.submit([encoder.finish()]);
