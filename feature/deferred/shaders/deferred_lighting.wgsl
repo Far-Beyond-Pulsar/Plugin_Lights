@@ -1091,6 +1091,8 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     var lit_surface = surface;
     lit_surface.normal = N;
     lit_surface.specular_f0 = F0;
+    // Its frame once, not a light (`bsdf_prepare`).
+    let lit = bsdf_prepare(lit_surface);
     if ENABLE_LIGHTING {
         let tile_x = u32(in.clip_pos.x) / TILE_SIZE;
         let tile_y = u32(in.clip_pos.y) / TILE_SIZE;
@@ -1153,8 +1155,11 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
             // two-sided surface's back passes `subsurface_color / pi`). A
             // subsurface surface lets some light past its shadow.
             let incidence = light_incidence(light, world_pos, eye);
+            // Light too faint to see is skipped (the lighting's cut before
+            // the BSDF moved to the frame; light_forward's too).
+            if !back && all(incidence.radiance < vec3<f32>(0.002)) { continue; }
             let visible = select(sf, mix(sf, 1.0, 0.3), has_subsurface && !back);
-            Lo += transmit * bsdf_eval(lit_surface, V, incidence.L) * incidence.radiance * visible;
+            Lo += transmit * bsdf_eval_prepared(lit, V, incidence.L) * incidence.radiance * visible;
         }
     }
 

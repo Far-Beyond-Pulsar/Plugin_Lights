@@ -105,20 +105,41 @@ pub fn sampler() -> LightSampler {
     }
 }
 
-/// Whether this graph's light grid is built yet.
-struct GridBuilt(bool);
+/// This graph's light grid: whether its pass is added, and the member
+/// gates its batches were added under (`None`: always a member). The grid
+/// is a member while any batch's pass can be: a consumer that runs only on
+/// request (the reference) does not keep it for the others, nor do the
+/// others drop it from under that consumer.
+#[derive(Default)]
+struct Grid {
+    added: bool,
+    users: Arc<std::sync::Mutex<Vec<Option<helio_core::MemberGate>>>>,
+}
 
 fn build_sample(
     build: &mut NodeBuild<'_, '_>,
     batch: &LightBatch,
     id: SamplerId,
 ) -> Result<(), String> {
-    let built = std::mem::replace(&mut build.env.shared(|| GridBuilt(false)).0, true);
+    let gate = build.graph.member_gate();
+    let grid = build.env.shared(Grid::default);
+    grid.users.lock().unwrap().push(gate);
+    let added = std::mem::replace(&mut grid.added, true);
+    let users = grid.users.clone();
     let device = build.env.device.clone();
-    if !built {
+    if !added {
+        let any: helio_core::MemberGate = Arc::new(move || {
+            users
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|gate| gate.as_ref().is_none_or(|open| open()))
+        });
+        let outer = build.graph.set_member_gate(Some(any));
         build
             .graph
             .add_pass(Box::new(LightGridPass::new(&device, id)));
+        build.graph.set_member_gate(outer);
     }
     let sun = sun_transmittance::current(build.env);
     let ies = build
@@ -241,6 +262,11 @@ pub struct LightGridPass {
     /// The light list's rows this frame (none: no list).
     rows: u32,
     sampler: SamplerId,
+    /// What the grid in the buffers was built from (the light list's
+    /// contents and size, the eye's finest cell, the frame's origin), and
+    /// this frame's: the grid is rebuilt only when they differ.
+    built: Option<[u64; 8]>,
+    wanted: [u64; 8],
     cache: helio_core::gpu_cache::GpuCache,
 }
 
@@ -290,6 +316,8 @@ impl LightGridPass {
             layout,
             rows: 0,
             sampler,
+            built: None,
+            wanted: [0; 8],
             cache: helio_core::gpu_cache::GpuCache::new(),
         }
     }
@@ -320,14 +348,15 @@ impl RenderPass for LightGridPass {
         };
         std::mem::swap(&mut self.entries, &mut previous.entries);
         std::mem::swap(&mut self.globals, &mut previous.globals);
+        std::mem::swap(&mut self.counts, &mut previous.counts);
+        std::mem::swap(&mut self.offsets, &mut previous.offsets);
+        self.built = previous.built.take();
         true
     }
 
     fn prepare(&mut self, ctx: &PrepareContext) -> HelioResult<()> {
-        self.rows = ctx
-            .scene_buffers
-            .get(BufferKey::of(LIGHT_LIST))
-            .map_or(0, |lights| lights.row_capacity());
+        let list = ctx.scene_buffers.get(BufferKey::of(LIGHT_LIST));
+        self.rows = list.map_or(0, |lights| lights.row_capacity());
         let storage_usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
         let rows = u64::from(self.rows.max(1));
         if self.entries.size() < rows * CELLS_A_LIGHT * 4 {
@@ -347,6 +376,21 @@ impl RenderPass for LightGridPass {
             );
         }
         let eye = &ctx.camera_data.position_near;
+        // The grid's levels are placed on the eye's finest cell (every
+        // coarser level's cell follows from it), so the eye moving within
+        // that cell changes no cell's lights.
+        let cell = |i: usize| (f64::from(eye[i]) / f64::from(FINEST_CELL)).floor() as i64 as u64;
+        let origin = ctx.world_origin;
+        self.wanted = [
+            list.map_or(0, |l| l.epoch),
+            list.map_or(0, |l| l.content_generation),
+            u64::from(self.rows) | (u64::from(self.sampler.0) << 32),
+            cell(0),
+            cell(1),
+            cell(2),
+            origin.x.to_bits() ^ origin.y.to_bits().rotate_left(21),
+            origin.z.to_bits(),
+        ];
         let params = GridParams {
             eye: [eye[0], eye[1], eye[2], FINEST_CELL],
             info: [self.rows, self.sampler.0, 0, 0],
@@ -364,6 +408,11 @@ impl RenderPass for LightGridPass {
             return Ok(());
         };
         self.cache.end_frame();
+        // The grid in the buffers is this frame's: nothing to build.
+        if self.built == Some(self.wanted) {
+            return Ok(());
+        }
+        self.built = Some(self.wanted);
         let common = self.cache.bind_group(
             ctx.device,
             &wgpu::BindGroupDescriptor {

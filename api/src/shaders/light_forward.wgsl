@@ -19,7 +19,8 @@ fn light_forward_one(
     metallic:  f32,
 ) -> vec3<f32> {
     let incidence = light_arrival(light, world_pos);
-    if all(incidence.radiance <= vec3<f32>(0.0)) { return vec3<f32>(0.0); }
+    // Light too faint to see is skipped (as the deferred lighting does).
+    if all(incidence.radiance < vec3<f32>(0.002)) { return vec3<f32>(0.0); }
     var surface = surface_data(albedo, N, roughness, metallic, vec3<f32>(0.0));
     surface.specular_f0 = F0;
     return bsdf_eval(surface, V, incidence.L) * incidence.radiance;
