@@ -1,5 +1,6 @@
 //!use helio_prelude
 //!use pbr_eval
+//!use frame_surface
 //!use frame_sky
 //!use sky_table
 //!use frame_indirect_specular
@@ -956,18 +957,24 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     if helio_is_sky(depth) { discard; }
 
     // ── Read G-buffer ─────────────────────────────────────────────────────────
-    let albedo_a  = textureLoad(gbuf_albedo,   pix, 0);
-    let normal_r  = textureLoad(gbuf_normal,   pix, 0);
-    let orm_r     = textureLoad(gbuf_orm,      pix, 0);
-    let emissive_r = textureLoad(gbuf_emissive, pix, 0);
-    let emissive  = emissive_r.rgb;
-
-    let albedo    = albedo_a.rgb;
-    let alpha     = albedo_a.a;
-    let N_host    = normalize(normal_r.xyz);
-    let ao        = orm_r.r;
-    let roughness = orm_r.g;
-    let metallic  = orm_r.b;
+    // The surface the texel holds: the frame's G-buffer decode
+    // (`gbuffer_surface_at`, `//!use frame_surface`), the same `SurfaceData`
+    // a ray stream's hit unpacks to.
+    let surface = gbuffer_surface_at(GBufferSurfaceTexels(
+        textureLoad(gbuf_albedo, pix, 0),
+        textureLoad(gbuf_normal, pix, 0),
+        textureLoad(gbuf_orm, pix, 0),
+        textureLoad(gbuf_emissive, pix, 0),
+        textureLoad(gbuf_sss, pix, 0),
+        textureLoad(gbuf_extra, pix, 0),
+    ));
+    let emissive  = surface.emissive;
+    let albedo    = surface.albedo.rgb;
+    let alpha     = surface.alpha;
+    let N_host    = surface.normal;
+    let ao        = surface.ao;
+    let roughness = surface.roughness;
+    let metallic  = surface.metallic;
 
     // Screen-space AO (SSAO or pre-baked AO).  Sampled by normalised screen UV
     // so it works regardless of whether the AO texture is at a different resolution.
@@ -996,7 +1003,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         // `GBUFFER_TAG_PLAIN` cannot be that marker: every classic mesh
         // without a surface payload writes it too. Anything unmarked was written by
         // the classic G-buffer raster.
-        let painted_by_virtual_geometry = albedo_a.a < 0.004;
+        let painted_by_virtual_geometry = alpha < 0.004;
         if is_traced {
             return vec4<f32>(0.12, 0.78, 1.0, 1.0);
         }
@@ -1040,8 +1047,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         return vec4<f32>(vec3<f32>(ao_combined), 1.0);
     }
     if globals.debug_mode == 13u {
-        let f0 = clamp(vec3<f32>(normal_r.w, orm_r.a, emissive_r.a), vec3<f32>(0.0), vec3<f32>(1.0));
-        return vec4<f32>(f0, 1.0);
+        return vec4<f32>(clamp(surface.specular_f0, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
     }
     if globals.debug_mode == 14u {
         if !gbuffer_has_payload(surface_tag) {
@@ -1124,7 +1130,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     }
 
     // ── PBR setup ─────────────────────────────────────────────────────────────
-    let F0  = clamp(vec3<f32>(normal_r.w, orm_r.a, emissive_r.a), vec3<f32>(0.0), vec3<f32>(0.999));
+    let F0  = clamp(surface.specular_f0, vec3<f32>(0.0), vec3<f32>(0.999));
     let V   = normalize(eye - world_pos);
     let NdV = max(dot(N, V), 0.0);
 
@@ -1134,24 +1140,21 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     }
 
     // ── SSS / Extra surface data ──────────────────────────────────────────────
-    let sss_r        = textureLoad(gbuf_sss, pix, 0);
-    let extra_r      = textureLoad(gbuf_extra, pix, 0);
-    // Flags are numerically encoded in the G-buffer so the Rgba16Float target
-    // can preserve these small integer values exactly.
-    let surface_flags = u32(round(extra_r.a));
+    let sss_color     = surface.subsurface_color;
+    let surface_flags = surface.flags;
     let is_anisotropic = (surface_flags & SURFACE_FLAG_ANISOTROPIC) != 0u;
     let has_subsurface = (surface_flags & SURFACE_FLAG_SUBSURFACE) != 0u;
     let low_specular   = (surface_flags & SURFACE_FLAG_LOW_SPECULAR) != 0u;
     let two_sided      = (surface_flags & SURFACE_FLAG_TWO_SIDED) != 0u;
 
     if globals.debug_mode == 15u {
-        return vec4<f32>(sss_r.rgb, 1.0);
+        return vec4<f32>(sss_color, 1.0);
     }
     if globals.debug_mode == 16u {
         return vec4<f32>(
-            clamp(extra_r.r, 0.0, 1.0),
-            clamp(extra_r.g, 0.0, 1.0),
-            fract(extra_r.b / (2.0 * 3.14159265)),
+            clamp(surface.roughness_aniso_x, 0.0, 1.0),
+            clamp(surface.roughness_aniso_y, 0.0, 1.0),
+            fract(surface.aniso_rotation / (2.0 * 3.14159265)),
             1.0,
         );
     }
@@ -1164,7 +1167,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         );
     }
     if globals.debug_mode == 18u {
-        let radius = max(sss_r.a, 0.0);
+        let radius = max(surface.subsurface_radius, 0.0);
         let readable_radius = radius / (1.0 + radius);
         return vec4<f32>(vec3<f32>(readable_radius), 1.0);
     }
@@ -1227,9 +1230,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     }
 
     // Anisotropic GGX parameters
-    let aniso_ax    = extra_r.r;
-    let aniso_ay    = extra_r.g;
-    let aniso_rot   = extra_r.b;
+    let aniso_ax    = surface.roughness_aniso_x;
+    let aniso_ay    = surface.roughness_aniso_y;
+    let aniso_rot   = surface.aniso_rotation;
 
     // Compute aniso tangent direction from world normal + rotation
     var aniso_T = vec3<f32>(0.0);
@@ -1313,10 +1316,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
             }
             if back {
                 let incidence = light_incidence(light, world_pos, eye);
-                Lo += transmit * sss_r.rgb / PI * incidence.radiance * max(-dot(N, incidence.L), 0.0) * sf;
+                Lo += transmit * sss_color / PI * incidence.radiance * max(-dot(N, incidence.L), 0.0) * sf;
                 continue;
             }
-            let sss_color = sss_r.rgb;
             Lo += transmit * pbr_direct_light(light, world_pos, eye, N, V, F0, albedo, roughness, metallic, sf, is_anisotropic, aniso_T, aniso_ax, aniso_ay, has_subsurface, sss_color);
         }
     }
@@ -1329,7 +1331,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     var sss_transmission = vec3<f32>(0.0);
     if has_subsurface {
         let rim = pow(1.0 - NdV, 3.0);
-        sss_transmission = sss_r.rgb * rim * 1.2;
+        sss_transmission = sss_color * rim * 1.2;
     }
 
     // Indirect specular is composed by fs_reflection in a second draw. This

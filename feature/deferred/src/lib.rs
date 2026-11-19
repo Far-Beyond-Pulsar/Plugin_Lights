@@ -48,6 +48,7 @@ const _: () = assert!(REFLECTION_SAMPLED_TEXTURE_COUNT <= 16);
 /// helio-mats' PBR evaluation library in ahead of it, and so on).
 const SHADER_SNIPPETS: &[helio_core::shader::ShaderSnippet] = &[
     helio_mats::PBR_EVAL_SNIPPET,
+    helio_frame_api::gbuffer::SURFACE_SNIPPET,
     SKY_SNIPPET,
     SKY_TABLE_SNIPPET,
     helio_frame_api::lighting::INDIRECT_SPECULAR_SNIPPET,
