@@ -18,9 +18,9 @@ use pulsar_scenedb::gpu::BufferKey;
 mod components;
 pub mod feature;
 pub mod gpu_types;
-mod remapped_tiles;
 #[cfg(feature = "host-rows")]
 pub mod host_rows;
+mod remapped_tiles;
 pub use components::REFLECTION_CAPTURES;
 pub use components::{ReflectionCaptureRow, MAX_REFLECTION_CAPTURES};
 pub use feature::DeferredLightingFeature;

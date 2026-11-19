@@ -61,7 +61,9 @@ fn read<T: bytemuck::Pod>(gpu: &Gpu, buffer: &wgpu::Buffer) -> Vec<T> {
     let mut encoder = gpu.device.create_command_encoder(&Default::default());
     encoder.copy_buffer_to_buffer(buffer, 0, &staging, 0, buffer.size());
     gpu.queue.submit([encoder.finish()]);
-    staging.slice(..).map_async(wgpu::MapMode::Read, |r| r.unwrap());
+    staging
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, |r| r.unwrap());
     gpu.device
         .poll(wgpu::PollType::wait_indefinitely())
         .unwrap();
@@ -210,7 +212,10 @@ fn brute_force(gpu: &Gpu, lights: &wgpu::Buffer, points: &[LightQuery], eye: Vec
         &vec![0u8; helio_frame_api::lighting::sky::SKY_FRAME_BYTES as usize],
         wgpu::BufferUsages::UNIFORM,
     );
-    let eye_buffer = init(bytemuck::cast_slice(&[eye.extend(0.0)]), wgpu::BufferUsages::UNIFORM);
+    let eye_buffer = init(
+        bytemuck::cast_slice(&[eye.extend(0.0)]),
+        wgpu::BufferUsages::UNIFORM,
+    );
     let ies = helio_light_api::ies_stand_in(device, &gpu.queue);
     let sampler = helio_light_api::ies_sampler(device);
     let module = helio_core::shader::module_with(
@@ -231,13 +236,34 @@ fn brute_force(gpu: &Gpu, lights: &wgpu::Buffer, points: &[LightQuery], eye: Vec
         label: Some("brute force"),
         layout: &pipeline.get_bind_group_layout(0),
         entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: lights.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 1, resource: points_buffer.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: sums.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 3, resource: sky.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&ies) },
-            wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(&sampler) },
-            wgpu::BindGroupEntry { binding: 6, resource: eye_buffer.as_entire_binding() },
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: lights.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: points_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: sums.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: sky.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(&ies),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 6,
+                resource: eye_buffer.as_entire_binding(),
+            },
         ],
     });
     let mut encoder = device.create_command_encoder(&Default::default());
@@ -285,7 +311,9 @@ fn sample(
     let camera = gpu.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("test camera"),
         size: std::mem::size_of::<GpuCameraUniforms>() as u64,
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        usage: wgpu::BufferUsages::UNIFORM
+            | wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
     let frame = FrameDesc {
@@ -296,7 +324,15 @@ fn sample(
         surface_format: wgpu::TextureFormat::Rgba8Unorm,
         xr: false,
     };
-    let mut env = BuildEnv::new(&gpu.device, &gpu.queue, frame, &camera, &camera, &stats, true);
+    let mut env = BuildEnv::new(
+        &gpu.device,
+        &gpu.queue,
+        frame,
+        &camera,
+        &camera,
+        &stats,
+        true,
+    );
     light_samples::offer(&mut env, helio_pass_light_sampler::sampler());
     let mut graph = RenderGraph::new(&gpu.device, &gpu.queue);
     graph.add_pass(Box::new(Queries {
@@ -345,12 +381,17 @@ fn sample(
         gpu.device
             .create_texture(&wgpu::TextureDescriptor {
                 label: None,
-                size: wgpu::Extent3d { width: 16, height: 16, depth_or_array_layers: 1 },
+                size: wgpu::Extent3d {
+                    width: 16,
+                    height: 16,
+                    depth_or_array_layers: 1,
+                },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             })
             .create_view(&Default::default())
@@ -367,10 +408,7 @@ fn sample(
         .poll(wgpu::PollType::wait_indefinitely())
         .unwrap();
     let out = read::<LightSample>(gpu, &samples_buffer);
-    let firsts: Vec<LightQuery> = points
-        .iter()
-        .map(|p| query(p, 0, 0))
-        .collect();
+    let firsts: Vec<LightQuery> = points.iter().map(|p| query(p, 0, 0)).collect();
     let brute = brute_force(gpu, &light_buffer, &firsts, eye);
     (out[..rows.len()].to_vec(), brute)
 }
@@ -469,14 +507,30 @@ fn the_samples_are_unbiased_against_the_sum_of_every_light() {
     let mut lights = Vec::new();
     for i in 0..48u32 {
         let f = i as f32;
-        let at = Vec3::new((f * 7.3).sin() * 20.0, 1.0 + (f * 1.7).cos().abs() * 4.0, (f * 3.1).cos() * 20.0);
+        let at = Vec3::new(
+            (f * 7.3).sin() * 20.0,
+            1.0 + (f * 1.7).cos().abs() * 4.0,
+            (f * 3.1).cos() * 20.0,
+        );
         let range = [0.6, 1.5, 3.0, 8.0, 20.0, 70.0][i as usize % 6];
         let color = Vec3::new(1.0, 0.5 + 0.5 * (f * 0.9).sin().abs(), 0.3);
         lights.push(point_light(at, color, 5.0 + f, range));
     }
     // Past every level: a global.
-    lights.push(point_light(Vec3::new(400.0, 50.0, 0.0), Vec3::ONE, 2.0e5, 900.0));
-    lights.push(spot_light(Vec3::new(0.0, 6.0, 0.0), Vec3::new(0.0, -1.0, 0.0), 300.0, 15.0, 0.7, 0.9));
+    lights.push(point_light(
+        Vec3::new(400.0, 50.0, 0.0),
+        Vec3::ONE,
+        2.0e5,
+        900.0,
+    ));
+    lights.push(spot_light(
+        Vec3::new(0.0, 6.0, 0.0),
+        Vec3::new(0.0, -1.0, 0.0),
+        300.0,
+        15.0,
+        0.7,
+        0.9,
+    ));
     lights.push(sun(Vec3::new(0.3, -1.0, 0.2).normalize(), 3.0));
     lights.push(sun(Vec3::new(-0.6, -0.4, 0.0).normalize(), 0.5));
     // An unused (zeroed) row and a black light: no light.
@@ -484,9 +538,18 @@ fn the_samples_are_unbiased_against_the_sum_of_every_light() {
     lights.push(point_light(Vec3::ZERO, Vec3::ONE, 0.0, 5.0));
     let points: Vec<Point> = [
         (Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
-        (Vec3::new(5.0, 1.0, 3.0), Vec3::new(0.2, 1.0, 0.1).normalize()),
-        (Vec3::new(-12.0, 0.5, 8.0), Vec3::new(1.0, 0.3, 0.0).normalize()),
-        (Vec3::new(18.0, 3.0, -15.0), Vec3::new(-1.0, 0.0, 0.2).normalize()),
+        (
+            Vec3::new(5.0, 1.0, 3.0),
+            Vec3::new(0.2, 1.0, 0.1).normalize(),
+        ),
+        (
+            Vec3::new(-12.0, 0.5, 8.0),
+            Vec3::new(1.0, 0.3, 0.0).normalize(),
+        ),
+        (
+            Vec3::new(18.0, 3.0, -15.0),
+            Vec3::new(-1.0, 0.0, 0.2).normalize(),
+        ),
         // Outside the finest levels, and outside every level.
         (Vec3::new(150.0, 2.0, 40.0), Vec3::Y),
         (Vec3::new(1500.0, 0.0, -900.0), Vec3::Y),
@@ -520,8 +583,18 @@ fn lights_behind_a_point_and_out_of_range_give_nothing() {
         point_light(Vec3::new(0.0, -2.0, 0.0), Vec3::ONE, 50.0, 10.0),
         point_light(Vec3::new(0.0, 3.0, 0.0), Vec3::ONE, 50.0, 10.0),
     ];
-    let up = Point { at: Vec3::ZERO, normal: Vec3::Y, space: 0, any_side: false };
-    let far = Point { at: Vec3::new(40.0, 0.0, 0.0), normal: Vec3::Y, space: 0, any_side: false };
+    let up = Point {
+        at: Vec3::ZERO,
+        normal: Vec3::Y,
+        space: 0,
+        any_side: false,
+    };
+    let far = Point {
+        at: Vec3::new(40.0, 0.0, 0.0),
+        normal: Vec3::Y,
+        space: 0,
+        any_side: false,
+    };
     let samples = 512;
     let (rows, brute) = sample(gpu, &lights, &[up, far], samples, Vec3::ZERO);
     for s in &rows[..samples as usize] {
@@ -540,10 +613,31 @@ fn lights_behind_a_point_and_out_of_range_give_nothing() {
 fn a_point_is_lit_by_the_lights_of_its_space() {
     let Some(gpu) = gpu() else { return };
     let lights = vec![
-        in_space(point_light(Vec3::new(0.0, 2.0, 0.0), Vec3::new(1.0, 0.0, 0.0), 40.0, 10.0), 0),
-        in_space(point_light(Vec3::new(0.0, 2.0, 0.0), Vec3::new(0.0, 0.0, 1.0), 40.0, 10.0), 3),
+        in_space(
+            point_light(
+                Vec3::new(0.0, 2.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                40.0,
+                10.0,
+            ),
+            0,
+        ),
+        in_space(
+            point_light(
+                Vec3::new(0.0, 2.0, 0.0),
+                Vec3::new(0.0, 0.0, 1.0),
+                40.0,
+                10.0,
+            ),
+            3,
+        ),
     ];
-    let at = |space| Point { at: Vec3::ZERO, normal: Vec3::Y, space, any_side: false };
+    let at = |space| Point {
+        at: Vec3::ZERO,
+        normal: Vec3::Y,
+        space,
+        any_side: false,
+    };
     // World (slot 0 + 1), slot 3 + 1, every space (0).
     let points = [at(1), at(4), at(0)];
     let samples = 1024;

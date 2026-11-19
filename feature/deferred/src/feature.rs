@@ -71,9 +71,11 @@ impl Feature for DeferredLightingFeature {
                     );
                     pass.debug_mode = lighting.debug_mode;
                     pass.set_env_reflections(lighting.environment_reflections);
-                    build.graph.add_pass(Box::new(crate::remapped_tiles::RemappedLightTiles::new(
-                        build.env.device,
-                    )));
+                    build
+                        .graph
+                        .add_pass(Box::new(crate::remapped_tiles::RemappedLightTiles::new(
+                            build.env.device,
+                        )));
                     build.graph.add_pass(Box::new(pass));
                     Ok(())
                 },

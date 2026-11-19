@@ -29,7 +29,11 @@ pub fn ies_stand_in(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture
     }
     for y in 0..side {
         for x in 0..side {
-            texels.push(if ((x / 4) + (y / 4)) & 1 == 0 { 255 } else { 40 });
+            texels.push(if ((x / 4) + (y / 4)) & 1 == 0 {
+                255
+            } else {
+                40
+            });
         }
     }
     let texture = device.create_texture(&wgpu::TextureDescriptor {

@@ -165,7 +165,12 @@ fn entry(binding: u32, buffer: &wgpu::Buffer) -> wgpu::BindGroupEntry<'_> {
     }
 }
 
-fn buffer(device: &wgpu::Device, label: &str, size: u64, usage: wgpu::BufferUsages) -> wgpu::Buffer {
+fn buffer(
+    device: &wgpu::Device,
+    label: &str,
+    size: u64,
+    usage: wgpu::BufferUsages,
+) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
         size: size.max(16),
@@ -266,8 +271,18 @@ impl LightGridPass {
                 std::mem::size_of::<GridParams>() as u64,
                 wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             ),
-            counts: buffer(device, "Light grid counts", u64::from(CELLS) * 4, storage_usage),
-            offsets: buffer(device, "Light grid offsets", u64::from(CELLS) * 4, storage_usage),
+            counts: buffer(
+                device,
+                "Light grid counts",
+                u64::from(CELLS) * 4,
+                storage_usage,
+            ),
+            offsets: buffer(
+                device,
+                "Light grid offsets",
+                u64::from(CELLS) * 4,
+                storage_usage,
+            ),
             entries: buffer(device, "Light grid entries", 16, storage_usage),
             globals: buffer(device, "Light grid globals", 16, storage_usage),
             alloc: buffer(device, "Light grid allocation", 16, storage_usage),
@@ -286,7 +301,13 @@ impl RenderPass for LightGridPass {
     }
 
     fn writes(&self) -> &'static [&'static str] {
-        &[GRID_PARAMS, GRID_COUNTS, GRID_OFFSETS, GRID_LIGHTS, GRID_GLOBALS]
+        &[
+            GRID_PARAMS,
+            GRID_COUNTS,
+            GRID_OFFSETS,
+            GRID_LIGHTS,
+            GRID_GLOBALS,
+        ]
     }
 
     fn scene_buffers(&self) -> &'static [&'static str] {
@@ -563,7 +584,11 @@ impl RenderPass for LightSamplePass {
             .unwrap_or(&self.no_sky);
         let (sun_map, sun_frame) = self
             .sun
-            .and_then(|sun| ctx.registry.texture_binding(sun.map).zip(binding(sun.frame)))
+            .and_then(|sun| {
+                ctx.registry
+                    .texture_binding(sun.map)
+                    .zip(binding(sun.frame))
+            })
             .unwrap_or((&self.no_sun.0, &self.no_sun.1));
         self.cache.end_frame();
         let common = self.cache.bind_group(
