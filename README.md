@@ -26,7 +26,7 @@ draw phases and api crates.
 | `lights-examples` | `examples/` | Lights (pulsar.lights): the examples whose subject is the lights (IES profiles, many lights, light icons), over Helio's presets with the meshes' and the lights' features |
 | `helio-pass-billboard` | `feature/billboard/` | Helio pass: camera-facing billboards (light icons) in the overlay phase |
 | `helio-pass-light-cull` | `feature/cull/` | Helio render pass: tiled light culling (Forward+ style) |
-| `helio-pass-light-sampler` | `feature/sampler/` | Helio pass: the lights' sampler behind the frame's direct-light contract (`rays::light_samples`): a world-space light grid built once a frame, and for each point a consumer asks about (GI's probe hits, the reference path tracer's bounces) one light chosen by its unshadowed contribution, evaluated by `light_incidence` |
+| `helio-pass-light-sampler` | `feature/sampler/` | Helio pass: the lights' sampler behind the frame's direct-light contract (`rays::light_samples`): a world-space light grid rebuilt when the lights or the eye's cell change, and for each point a consumer asks about (GI's probe hits, the reference path tracer's bounces) one light chosen by its unshadowed contribution, evaluated by `light_incidence` |
 | `helio-pass-deferred-light` | `feature/deferred/` | Helio pass: the deferred lighting model, over the frame's lighting inputs |
 | `helio-pass-hlfs` | `feature/hlfs/` | Helio render pass: Hierarchical Light-Field Sampling (HLFS) |
 | `helio-pass-shadow-matrix` | `feature/shadows/` | Helio pass: the shadow views' matrices |

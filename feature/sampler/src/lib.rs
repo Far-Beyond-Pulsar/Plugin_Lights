@@ -10,7 +10,9 @@
 //! BSDF sample never meets one.
 //!
 //! **The choice** (`light_sampler.wgsl`). A world-space light grid, built
-//! once a graph's frame before the first batch is sampled ([`LightGridPass`]):
+//! before the first batch is sampled ([`LightGridPass`]) and again only when
+//! the light list's contents or size, the eye's finest cell or the frame's
+//! origin change; a member while any batch's pass can be:
 //! six nested levels of 32^3 cells about the eye, level `l`'s cells
 //! `2^l` metres across. A local light lives in the finest level whose cells
 //! are at least its range wide and whose box holds its sphere (at most 27
@@ -22,8 +24,8 @@
 //! contract.
 //!
 //! **What scales with what.** The build is three dispatches over the light
-//! list's rows and the grid's 196,608 cells, once a frame however many
-//! batches ask; memory is 1.5 MiB of cells and 27 words a light row. A
+//! list's rows and the grid's 196,608 cells, once however many batches
+//! ask; memory is 1.5 MiB of cells and 27 words a light row. A
 //! point's cost is the lights that can reach it (the globals, one cell a
 //! level), never every light. What the grid does not bound: a scene of many
 //! lights whose ranges exceed a kilometre, or far from the eye, are globals
