@@ -6,7 +6,7 @@
 // `lights: array<GpuLight>` and the binning as `tile_light_lists` /
 // `tile_light_counts` (both `array<u32>`), which the lights publish.
 
-// One light's direct radiance at `world_pos`: its falloff (`light_reach`)
+// One light's direct radiance at `world_pos`: its falloff (`light_arrival`)
 // times the surface's BSDF (`bsdf_eval`).
 fn light_forward_one(
     light:     GpuLight,
@@ -18,7 +18,7 @@ fn light_forward_one(
     roughness: f32,
     metallic:  f32,
 ) -> vec3<f32> {
-    let incidence = light_reach(light, world_pos);
+    let incidence = light_arrival(light, world_pos);
     if all(incidence.radiance <= vec3<f32>(0.0)) { return vec3<f32>(0.0); }
     var surface = surface_data(albedo, N, roughness, metallic, vec3<f32>(0.0));
     surface.specular_f0 = F0;

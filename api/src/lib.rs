@@ -12,7 +12,7 @@
 //! - the IES profiles and light functions ([`IesProfiles`], the stand-in
 //!   [`ies_stand_in`]);
 //! - in WGSL: [`LIGHT_LIST_SNIPPET`] (`//!use light_list`, with the one
-//!   falloff `light_reach`), [`LIGHT_INCIDENCE_SNIPPET`]
+//!   falloff `light_arrival`), [`LIGHT_INCIDENCE_SNIPPET`]
 //!   (`//!use light_incidence`, a light's full incidence at a point),
 //!   [`LIGHT_FORWARD_SNIPPET`] (`//!use light_forward`, the forward light
 //!   function), [`SHADOW_ATLAS_SNIPPET`] (`//!use shadow_atlas`),
@@ -57,7 +57,7 @@ pub const LIGHT_LIST_SNIPPET: helio_core::shader::ShaderSnippet =
 
 /// A light's full incidence at a point (`//!use light_incidence`, with
 /// `light_list` and the frame's `frame_sky`): `light_incidence(light, p,
-/// eye)`, the falloff (`light_reach`), the IES profile, the light function
+/// eye)`, the falloff (`light_arrival`), the IES profile, the light function
 /// and the air a directional light crosses. The deferred lighting and the
 /// lights' sampler both call it. The reader binds `ies_textures`,
 /// `ies_sampler` and `sky_frame`.

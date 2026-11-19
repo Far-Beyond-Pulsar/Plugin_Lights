@@ -113,7 +113,7 @@ struct LightIncidence {
 // Nothing past a local light's range. The lights' one falloff: the lighting
 // models, the forward function and the sampler start from it
 // (`light_incidence` adds the profile, the light function and the air).
-fn light_reach(light: GpuLight, p: vec3<f32>) -> LightIncidence {
+fn light_arrival(light: GpuLight, p: vec3<f32>) -> LightIncidence {
     if light.light_type == LIGHT_DIRECTIONAL {
         return LightIncidence(normalize(-light.direction_outer.xyz), light.color_intensity.xyz * light.color_intensity.w, 1e30);
     }

@@ -1,6 +1,6 @@
 // How a light reaches a point, in full (`helio_light_api`, `//!use
 // light_incidence`, with `//!use light_list` and `//!use frame_sky`): the
-// light's own falloff (`light_reach`), its IES profile and its light
+// light's own falloff (`light_arrival`), its IES profile and its light
 // function (gobo), and for a directional light of the world the air between
 // the point and space. What a lighting model multiplies by the surface's
 // BSDF, shadow and visibility, and what the lights' sampler offers: one
@@ -14,7 +14,7 @@
 // `light`'s incidence at frame point `p`, the eye at frame point `eye` (the
 // sky frame is the eye's).
 fn light_incidence(light: GpuLight, p: vec3<f32>, eye: vec3<f32>) -> LightIncidence {
-    var r = light_reach(light, p);
+    var r = light_arrival(light, p);
     if light.light_type == LIGHT_DIRECTIONAL {
         // A distant light crosses the atmosphere, if any, to reach the point.
         if light_space(light) == 0u {

@@ -16,7 +16,7 @@
 //! are at least its range wide and whose box holds its sphere (at most 27
 //! cells); directional lights and local lights no level holds are globals. A
 //! point weighs the globals and the lights of the cell holding it at each
-//! level, each by `light_reach` times the cosine to its normal, and keeps one
+//! level, each by `light_arrival` times the cosine to its normal, and keeps one
 //! by weighted reservoir sampling. The choice is isolated in that kernel:
 //! r5's resampled choice (ReSTIR, a light tree) replaces it behind the same
 //! contract.

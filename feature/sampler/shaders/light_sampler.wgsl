@@ -166,12 +166,12 @@ struct Choice {
 
 // What light `index` can bring to query `q`, before anything between them
 // and its profile, light function and air (each at most one): its falloff
-// (`light_reach`) times the cosine on the side the point is lit from (one
+// (`light_arrival`) times the cosine on the side the point is lit from (one
 // for a point lit from every side). Zero for a light the query's space does
 // not see.
 fn candidate_weight(q: LightQuery, light: GpuLight) -> f32 {
     if !light_query_sees_space(q, light_space(light)) { return 0.0; }
-    let reach = light_reach(light, q.position);
+    let reach = light_arrival(light, q.position);
     var cosine = 1.0;
     if (q.space & LIGHT_QUERY_ANY_SIDE) == 0u {
         cosine = max(dot(scene_unpack_unit(q.normal), reach.L), 0.0);

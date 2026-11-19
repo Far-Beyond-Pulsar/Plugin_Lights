@@ -42,7 +42,7 @@ draw phases and api crates.
   `Pulsar.toml` (`[plugins]`); disabled, the kind is absent and the frame
   draws without it.
 - **Reads other kinds through**: `helio-mats` (materials).
-- **How a light is evaluated** has one owner: `light_reach` (the falloff and
+- **How a light is evaluated** has one owner: `light_arrival` (the falloff and
   the spot cone, in `light_list`) and `light_incidence` (with the IES
   profile, the light function and the air a sun crosses), which the
   deferred lighting, the forward function and the sampler call; how a
