@@ -1,7 +1,7 @@
 //! Deferred lighting as a feature: the lighting model of the deferred
 //! presets (`helio_frame_api::lighting::model::DEFERRED`), lighting
 //! the G-buffer with every light, its shadows, the frame's lighting inputs
-//! and the IES profiles ([`crate::IesProfiles`]).
+//! and the IES profiles ([`helio_light_api::IesProfiles`]).
 
 use helio_feature_api::ExtensionPoint;
 use helio_feature_api::{pass_node, Feature, FeatureRegistrar};
@@ -10,7 +10,8 @@ use helio_frame_api::lighting::{
 };
 use helio_light_api::ShadowSettings;
 
-use crate::{DeferredLightPass, IesProfiles};
+use crate::DeferredLightPass;
+use helio_light_api::IesProfiles;
 
 /// Where the deferred model's pass joins the graph.
 pub const POINT: ExtensionPoint = ExtensionPoint("lighting.model.deferred");

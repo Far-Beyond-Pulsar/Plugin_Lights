@@ -26,29 +26,25 @@ pub use components::{ReflectionCaptureRow, MAX_REFLECTION_CAPTURES};
 pub use feature::DeferredLightingFeature;
 pub use gpu_types::*;
 
-/// The lights' IES profiles (a renderer config's `features`): a texture array
-/// (`R8Unorm`, `D2Array`, one layer per profile; a light's
-/// `ies_profile_index` selects the layer). Without it lights sample a
-/// built-in fallback. See `examples/ies_demo.rs`.
-#[derive(Clone, Debug)]
-pub struct IesProfiles(pub wgpu::TextureView);
-
 /// Sampled textures visible to each deferred-light fragment entry point
 /// (their pipeline layouts; a test counts them).
 ///
-/// Base lighting uses ten G-buffer inputs (the sun's visibility included) and
-/// five scene textures. Reflection composition uses six G-buffer inputs, the
+/// Base lighting uses ten G-buffer inputs (the depth and the sun's
+/// visibility included) and four scene textures (the dynamic and static
+/// shadow atlases, the IES profiles, the shadow transmittance). Reflection composition uses six G-buffer inputs, the
 /// environment cubes, two indirect-specular layers and the transmission.
-pub const BASE_SAMPLED_TEXTURE_COUNT: u32 = 15;
+pub const BASE_SAMPLED_TEXTURE_COUNT: u32 = 14;
 pub const REFLECTION_SAMPLED_TEXTURE_COUNT: u32 = 10;
 const _: () = assert!(BASE_SAMPLED_TEXTURE_COUNT <= 16);
 const _: () = assert!(REFLECTION_SAMPLED_TEXTURE_COUNT <= 16);
 
-/// The snippets the lighting shader opts into (`//!use pbr_eval` pulls
-/// helio-mats' PBR evaluation library in ahead of it, and so on).
+/// The snippets the lighting shader opts into: the frame's surface and its
+/// BSDF (how a surface returns light), the sky, the lights' list and
+/// incidence (how a light reaches a point), the shadow atlas.
 const SHADER_SNIPPETS: &[helio_core::shader::ShaderSnippet] = &[
-    helio_mats::PBR_EVAL_SNIPPET,
     helio_frame_api::gbuffer::SURFACE_SNIPPET,
+    helio_frame_api::gbuffer::BSDF_SNIPPET,
+    helio_light_api::LIGHT_INCIDENCE_SNIPPET,
     SKY_SNIPPET,
     SKY_TABLE_SNIPPET,
     helio_frame_api::lighting::INDIRECT_SPECULAR_SNIPPET,
@@ -161,7 +157,8 @@ pub struct DeferredLightPass {
     fallback_ssr_view: wgpu::TextureView,
     fallback_planar_view: wgpu::TextureView,
     fallback_ies_view: wgpu::TextureView,
-    /// The lights' IES profiles ([`IesProfiles`]); the fallback without.
+    /// The lights' IES profiles ([`helio_light_api::IesProfiles`]); the
+    /// stand-in without.
     ies_profiles: Option<wgpu::TextureView>,
     ies_sampler: wgpu::Sampler,
     pub debug_mode: u32,
@@ -605,96 +602,9 @@ impl DeferredLightPass {
         let (_fallback_transmission_texture, fallback_transmission_view) =
             black_2d_texture(device, queue, "Deferred No Transmission");
 
-        // IES fallback: 32×32, 2 layers.
-        // Layer 0 = spotlight gradient (bright centre, gaussian falloff) — for IES profiles
-        // Layer 1 = checkerboard grid — for gobo/cookie projection
-        const IES_FALLBACK_SIZE: u32 = 32;
-        let mut ies_data = Vec::with_capacity((IES_FALLBACK_SIZE * IES_FALLBACK_SIZE * 2) as usize);
-        // Layer 0: gaussian spotlight
-        for y in 0..IES_FALLBACK_SIZE {
-            for x in 0..IES_FALLBACK_SIZE {
-                let u = (x as f32 + 0.5) / IES_FALLBACK_SIZE as f32 * 2.0 - 1.0;
-                let v = (y as f32 + 0.5) / IES_FALLBACK_SIZE as f32 * 2.0 - 1.0;
-                let dist = (u * u + v * v).sqrt();
-                let gaussian = (-dist * dist * 4.0).exp();
-                ies_data.push((gaussian.clamp(0.0, 1.0) * 255.0) as u8);
-            }
-        }
-        // Layer 1: checkerboard gobo (alternating 4px squares)
-        for y in 0..IES_FALLBACK_SIZE {
-            for x in 0..IES_FALLBACK_SIZE {
-                let tile = ((x / 4) + (y / 4)) & 1;
-                ies_data.push(if tile == 0 { 255u8 } else { 40u8 });
-            }
-        }
-        let fallback_ies_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("DeferredLight IES Fallback"),
-            size: wgpu::Extent3d {
-                width: IES_FALLBACK_SIZE,
-                height: IES_FALLBACK_SIZE,
-                depth_or_array_layers: 2,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        // Write layer 0 (IES spotlight)
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &fallback_ies_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                aspect: wgpu::TextureAspect::All,
-            },
-            &ies_data[..(IES_FALLBACK_SIZE * IES_FALLBACK_SIZE) as usize],
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(IES_FALLBACK_SIZE),
-                rows_per_image: Some(IES_FALLBACK_SIZE),
-            },
-            wgpu::Extent3d {
-                width: IES_FALLBACK_SIZE,
-                height: IES_FALLBACK_SIZE,
-                depth_or_array_layers: 1,
-            },
-        );
-        // Write layer 1 (gobo checkerboard)
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &fallback_ies_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x: 0, y: 0, z: 1 },
-                aspect: wgpu::TextureAspect::All,
-            },
-            &ies_data[(IES_FALLBACK_SIZE * IES_FALLBACK_SIZE) as usize..],
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(IES_FALLBACK_SIZE),
-                rows_per_image: Some(IES_FALLBACK_SIZE),
-            },
-            wgpu::Extent3d {
-                width: IES_FALLBACK_SIZE,
-                height: IES_FALLBACK_SIZE,
-                depth_or_array_layers: 1,
-            },
-        );
-        let fallback_ies_view = fallback_ies_texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        });
-
-        let ies_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("DeferredLight IES Sampler"),
-            min_filter: wgpu::FilterMode::Linear,
-            mag_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Linear,
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            ..Default::default()
-        });
+        // Without the lights' IES profiles: their stand-in (the sampler's too).
+        let fallback_ies_view = helio_light_api::ies_stand_in(device, queue);
+        let ies_sampler = helio_light_api::ies_sampler(device);
 
         let fallback_reflection_captures = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Fallback Reflection Captures"),

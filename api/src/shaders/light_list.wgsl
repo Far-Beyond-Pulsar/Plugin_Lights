@@ -95,6 +95,40 @@ fn light_shadow_requested(light: GpuLight) -> bool {
     return select(light.shadow_index != LIGHT_NO_SHADOW, (light._pad & 4u) != 0u, (light._pad & 8u) != 0u);
 }
 
+// A light as it reaches a point, before anything between them: toward it
+// (`L`, unit) and the radiance a surface facing it receives per unit solid
+// angle of its (delta) emitter there (`radiance`: colour times intensity,
+// times the falloff), and how far it is (`distance`; a directional light:
+// 1e30).
+struct LightIncidence {
+    L: vec3<f32>,
+    radiance: vec3<f32>,
+    distance: f32,
+}
+
+// How `light` reaches frame point `p` by its kind alone: a directional
+// light's colour and intensity along its direction; a point or spot light's
+// inverse square, windowed to zero at its range by `(1 - (d / range)^4)`,
+// and a spot's cone (`smoothstep` from its outer to its inner cosine).
+// Nothing past a local light's range. The lights' one falloff: the lighting
+// models, the forward function and the sampler start from it
+// (`light_incidence` adds the profile, the light function and the air).
+fn light_reach(light: GpuLight, p: vec3<f32>) -> LightIncidence {
+    if light.light_type == LIGHT_DIRECTIONAL {
+        return LightIncidence(normalize(-light.direction_outer.xyz), light.color_intensity.xyz * light.color_intensity.w, 1e30);
+    }
+    let to_light = light.position_range.xyz - p;
+    let dist = length(to_light);
+    let L = to_light / max(dist, 1e-6);
+    if dist > light.position_range.w { return LightIncidence(L, vec3<f32>(0.0), dist); }
+    let x = dist / light.position_range.w;
+    var atten = max(0.0, 1.0 - x * x * x * x) / (dist * dist + 0.0001);
+    if light.light_type == LIGHT_SPOT {
+        atten *= smoothstep(light.direction_outer.w, light.inner_angle, dot(-L, light.direction_outer.xyz));
+    }
+    return LightIncidence(L, light.color_intensity.xyz * light.color_intensity.w * atten, dist);
+}
+
 // The tile of the pixel at `frag_xy` among `num_tiles_x` tiles a row.
 fn light_tile_index(frag_xy: vec2<f32>, num_tiles_x: u32) -> u32 {
     let tile = vec2<u32>(frag_xy) / LIGHT_TILE_SIZE;

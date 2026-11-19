@@ -12,6 +12,7 @@ helio-pass-billboard = { workspace = true, features = ["host-rows"] }
 helio-pass-deferred-light = { workspace = true, features = ["host-rows"] }
 helio-pass-hlfs = { workspace = true }
 helio-pass-light-cull = { workspace = true }
+helio-pass-light-sampler = { workspace = true }
 helio-pass-shadow-matrix = { workspace = true }
 pulsar_scenedb = { workspace = true }
 wgpu = { workspace = true }

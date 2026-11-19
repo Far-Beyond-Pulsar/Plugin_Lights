@@ -89,6 +89,7 @@ pub fn render_features() -> helio_feature_api::FeatureSet {
     helio_feature_api::FeatureSet::new()
         .with(helio_pass_shadow_matrix::ShadowViewsFeature)
         .with(helio_pass_light_cull::LightCullFeature)
+        .with(helio_pass_light_sampler::LightSamplerFeature)
         .with(helio_pass_deferred_light::DeferredLightingFeature)
         .with(helio_pass_hlfs::HlfsFeature)
         .with(helio_pass_billboard::BillboardFeature)

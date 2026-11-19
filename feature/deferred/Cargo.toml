@@ -17,7 +17,6 @@ host-rows = ["dep:helio-components", "dep:pulsar_scenedb_derive", "dep:serde_jso
 helio-light-api = { workspace = true }
 pulsar_reflection = { workspace = true }
 helio-core  = { workspace = true }
-helio-mats  = { workspace = true }
 helio-feature-api = { workspace = true }
 helio-frame-api = { workspace = true }
 wgpu      = { workspace = true }
