@@ -26,6 +26,7 @@ draw phases and api crates.
 | `lights-examples` | `examples/` | Lights (pulsar.lights): the examples whose subject is the lights (IES profiles, many lights, light icons), over Helio's presets with the meshes' and the lights' features |
 | `helio-pass-billboard` | `feature/billboard/` | Helio pass: camera-facing billboards (light icons) in the overlay phase |
 | `helio-pass-light-cull` | `feature/cull/` | Helio render pass: tiled light culling (Forward+ style) |
+| `helio-pass-light-sampler` | `feature/sampler/` | Helio pass: the lights' sampler behind the frame's direct-light contract (`rays::light_samples`): a world-space light grid rebuilt when the lights or the eye's cell change, and for each point a consumer asks about (GI's probe hits, the reference path tracer's bounces) one light chosen by its unshadowed contribution, evaluated by `light_incidence` |
 | `helio-pass-deferred-light` | `feature/deferred/` | Helio pass: the deferred lighting model, over the frame's lighting inputs |
 | `helio-pass-hlfs` | `feature/hlfs/` | Helio render pass: Hierarchical Light-Field Sampling (HLFS) |
 | `helio-pass-shadow-matrix` | `feature/shadows/` | Helio pass: the shadow views' matrices |
@@ -41,6 +42,13 @@ draw phases and api crates.
   `Pulsar.toml` (`[plugins]`); disabled, the kind is absent and the frame
   draws without it.
 - **Reads other kinds through**: `helio-mats` (materials).
+- **How a light is evaluated** has one owner: `light_arrival` (the falloff and
+  the spot cone, in `light_list`) and `light_incidence` (with the IES
+  profile, the light function and the air a sun crosses), which the
+  deferred lighting, the forward function and the sampler call; how a
+  surface returns it is the frame's BSDF (`helio_frame_api::gbuffer::
+  BSDF_SNIPPET`), not the lights'. HLFS keeps its own light evaluation
+  (open: it does not call these yet).
 - **Its standalone hosts also compose**: `helio-mats` (materials); `helio-mesh-api, helio-mesh-host, helio-pass-forward-lit, helio-vg-stream` (meshes) (demos and GPU tests
   draw a whole scene; the plugin itself does not depend on these).
 
@@ -66,8 +74,8 @@ only inside a Pulsar-Native checkout:
 ```bash
 git clone --recursive https://github.com/Far-Beyond-Pulsar/Pulsar-Native
 cd Pulsar-Native
-cargo check -p helio-light-api -p lights_component -p lights_editor -p lights_plugin --features lights_plugin/editor -p lights-examples -p helio-pass-billboard -p helio-pass-light-cull -p helio-pass-deferred-light -p helio-pass-hlfs -p helio-pass-shadow-matrix -p helio-light-host --tests
-cargo test -p helio-light-api -p lights_component -p lights_plugin -p helio-pass-billboard -p helio-pass-light-cull -p helio-pass-deferred-light -p helio-pass-hlfs -p helio-pass-shadow-matrix
+cargo check -p helio-light-api -p lights_component -p lights_editor -p lights_plugin --features lights_plugin/editor -p lights-examples -p helio-pass-billboard -p helio-pass-light-cull -p helio-pass-light-sampler -p helio-pass-deferred-light -p helio-pass-hlfs -p helio-pass-shadow-matrix -p helio-light-host --tests
+cargo test -p helio-light-api -p lights_component -p lights_plugin -p helio-pass-billboard -p helio-pass-light-cull -p helio-pass-light-sampler -p helio-pass-deferred-light -p helio-pass-hlfs -p helio-pass-shadow-matrix
 ```
 
 Suites that render real frames need a GPU; CI leaves them out by name

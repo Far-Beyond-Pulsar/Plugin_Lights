@@ -1,9 +1,11 @@
 //!use helio_prelude
-//!use pbr_eval
+//!use frame_surface
+//!use frame_bsdf
 //!use frame_sky
 //!use sky_table
 //!use frame_indirect_specular
 //!use light_list
+//!use light_incidence
 //!use shadow_atlas
 
 //! Deferred lighting pass.
@@ -218,7 +220,8 @@ struct GpuReflectionCapture {
 const CAPTURE_SHAPE_SPHERE: u32 = 0u;
 const CAPTURE_SHAPE_BOX:    u32 = 1u;
 
-// ENV_MAX_LOD imported from pbr_eval.wgsl
+// Highest mip of the prefiltered reflection cubes (roughness 1 maps here).
+const ENV_MAX_LOD: f32 = 8.0;
 
 // Group 3 – tiled light culling results (written by LightCullPass each frame)
 const TILE_SIZE:          u32 = 16u;
@@ -668,10 +671,6 @@ fn raster_shadow_factor(light_idx: u32, world_pos: vec3<f32>, N: vec3<f32>, frag
 
 // ── Surface flags (read from gbuf_extra.a) ──────────────────────────────────
 
-// SURFACE_FLAG_* and ENV_MAX_LOD imported from pbr_eval.wgsl
-
-// env_brdf_approx imported from pbr_eval.wgsl
-
 // ── Reflection captures ──────────────────────────────────────────────────────
 
 // Anchor the reflection ray to the capture's sphere so the cubemap reads as a
@@ -792,155 +791,6 @@ fn sample_reflection_environment(P: vec3<f32>, R: vec3<f32>, lod: f32) -> vec3<f
     return accum;
 }
 
-// A light's direction from `world_pos` (toward it) and its radiance there
-// (none past its range).
-struct Incidence {
-    L: vec3<f32>,
-    radiance: vec3<f32>,
-}
-
-fn light_incidence(light: GpuLight, world_pos: vec3<f32>, eye: vec3<f32>) -> Incidence {
-    var L:        vec3<f32>;
-    var radiance: vec3<f32>;
-
-    if light.light_type == 0u {  // Directional light
-        L        = normalize(-light.direction_outer.xyz);
-        // A distant light crosses the atmosphere, if any, to reach the point.
-        radiance = light.color_intensity.xyz * light.color_intensity.w;
-        if light_space(light) == 0u {
-            radiance *= sky_transmittance_towards(sky_frame, (world_pos - eye) * 0.001, L);
-        }
-    } else {  // Point or spot light
-        let to_light = light.position_range.xyz - world_pos;
-        let dist     = length(to_light);
-        if dist > light.position_range.w { return Incidence(to_light / max(dist, 1e-6), vec3<f32>(0.0)); }
-        L = to_light / dist;
-        var atten = 1.0 / (dist * dist + 0.0001);
-        let normalized_dist = dist / light.position_range.w;
-        atten *= max(0.0, 1.0 - normalized_dist * normalized_dist * normalized_dist * normalized_dist);
-        if light.light_type == 2u {  // Spot light
-            let cos_a = dot(-L, light.direction_outer.xyz);
-            atten    *= smoothstep(light.direction_outer.w, light.inner_angle, cos_a);
-        }
-        // IES light profile: sample angular intensity distribution
-        if light.ies_profile_index >= 0 {
-            let light_dir = normalize(light.direction_outer.xyz);
-            let theta = acos(clamp(dot(-L, light_dir), -1.0, 1.0));
-            let cross_dir = cross(-L, light_dir);
-            let phi = atan2(cross_dir.x, cross_dir.y);
-            let ies_uv = vec2<f32>(
-                phi / 6.2831853 + 0.5,
-                theta * 0.6366198,
-            ) * vec2<f32>(light.ies_angle_scale, light.ies_angle_scale)
-            + vec2<f32>(light.ies_angle_offset / 360.0, 0.0);
-            let ies_sample = textureSampleLevel(
-                ies_textures, ies_sampler, ies_uv, u32(light.ies_profile_index), 0.0
-            ).r;
-            atten *= ies_sample;
-        }
-        // Light function (gobo/cookie) projection
-        if light.light_function_index >= 0 {
-            let light_to_surface = world_pos - light.position_range.xyz;
-            let light_dir = normalize(light.direction_outer.xyz);
-            let projected = light_to_surface - dot(light_to_surface, light_dir) * light_dir;
-            let proj_len = max(length(projected), 0.0001);
-            let projected_n = projected / proj_len;
-            // Build tangent frame: handle degenerate case where light_dir ≈ up
-            let gobo_up_vec = select(
-                vec3<f32>(0.0, 1.0, 0.0),
-                vec3<f32>(0.0, 0.0, 1.0),
-                abs(dot(light_dir, vec3<f32>(0.0, 1.0, 0.0))) > 0.99,
-            );
-            let gobo_right = normalize(cross(light_dir, gobo_up_vec));
-            let gobo_up = cross(gobo_right, light_dir);
-            let gobo_uv = vec2<f32>(
-                dot(projected, gobo_right) / (light.position_range.w * 0.5) + 0.5,
-                dot(projected, gobo_up) / (light.position_range.w * 0.5) + 0.5,
-            );
-            let gobo_sample = textureSampleLevel(
-                ies_textures, ies_sampler, clamp(gobo_uv, vec2<f32>(0.0), vec2<f32>(1.0)),
-                u32(light.light_function_index), 0.0
-            ).r;
-            atten *= gobo_sample;
-        }
-        radiance = light.color_intensity.xyz * light.color_intensity.w * atten;
-    }
-
-    return Incidence(L, radiance);
-}
-
-// Evaluate one direct light with the full Cook-Torrance BRDF.
-// `sf` is the shadow factor (0=shadowed, 1=lit), computed at the call site.
-// When `is_anisotropic` is true, uses anisotropic GGX distribution with the
-// given tangent direction, ax/aniso roughness in X, ay/aniso roughness in Y.
-// For SSS surfaces (has_subsurface), applies wrap-diffuse lighting with
-// transmission through the subsurface, tinted by subsurface_color.
-fn pbr_direct_light(
-    light:     GpuLight,
-    world_pos: vec3<f32>,
-    eye:       vec3<f32>,
-    N:         vec3<f32>,
-    V:         vec3<f32>,
-    F0:        vec3<f32>,
-    albedo:    vec3<f32>,
-    roughness: f32,
-    metallic:  f32,
-    sf:        f32,
-    is_anisotropic: bool,
-    T:         vec3<f32>,
-    ax:        f32,
-    ay:        f32,
-    has_subsurface: bool,
-    subsurface_color: vec3<f32>,
-) -> vec3<f32> {
-    let incidence = light_incidence(light, world_pos, eye);
-    let L = incidence.L;
-    let radiance = incidence.radiance;
-
-    let NdL = max(dot(N, L), 0.0);
-    if NdL == 0.0 { return vec3<f32>(0.0); }
-
-    if all(radiance < vec3<f32>(0.002)) { return vec3<f32>(0.0); }
-
-    let H         = normalize(V + L);
-    let F         = fresnel_schlick(max(dot(H, V), 0.0), F0);
-    let kD        = (1.0 - F) * (1.0 - metallic);
-    let NdV       = max(dot(N, V), 0.0);
-    var specular: vec3<f32>;
-
-    if is_anisotropic {
-        let phi_h    = compute_phi_h(N, H, T, cross(N, T));
-        let D        = distribution_ggx_anisotropic(max(dot(N, H), 0.0), ax, ay, phi_h);
-        let G        = geometry_smith_anisotropic(NdV, NdL, ax, ay);
-        specular = D * G * F / (4.0 * NdV * NdL + 0.0001);
-    } else {
-        let D        = distribution_ggx(N, H, roughness);
-        let G        = geometry_smith(N, V, L, roughness);
-        specular = D * G * F / (4.0 * NdV * NdL + 0.0001);
-    }
-
-    var diffuse_term = kD * albedo / PI;
-    var NdotL_effective = NdL;
-
-    // Subsurface scattering: wrap-diffuse + transmission approximation.
-    // Light penetrates the surface, scatters internally tinted by
-    // subsurface_color, and exits.  The wrap term extends the diffuse
-    // lobe into the back-facing hemisphere, mimicking internal scatter.
-    if has_subsurface {
-        let wrap = 0.2 + 0.4 * (1.0 - roughness); // tighter wrap for smoother surfaces
-        NdotL_effective = max((dot(N, L) + wrap) / (1.0 + wrap), 0.0);
-        // SSS diffuse: standard diffuse dimmed, plus a tinted wrap term
-        let sss_diffuse = (1.0 - F) * albedo / PI * (1.0 - metallic);
-        let sss_scatter = subsurface_color * (1.0 / PI);
-        diffuse_term = mix(sss_diffuse, sss_scatter, 0.5);
-        // Reduce shadow occlusion — SSS surfaces let light through
-        let sf_sss = mix(sf, 1.0, 0.3);
-        return (diffuse_term + specular) * radiance * NdotL_effective * sf_sss;
-    }
-
-    return (diffuse_term + specular) * radiance * NdotL_effective * sf;
-}
-
 // ── Tonemapping & bloom ───────────────────────────────────────────────────────
 // Handled by PostProcessPass (helio-pass-postprocess). This pass writes raw HDR
 // linear light to pre_aa — no tonemapping or bloom here.
@@ -956,18 +806,24 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     if helio_is_sky(depth) { discard; }
 
     // ── Read G-buffer ─────────────────────────────────────────────────────────
-    let albedo_a  = textureLoad(gbuf_albedo,   pix, 0);
-    let normal_r  = textureLoad(gbuf_normal,   pix, 0);
-    let orm_r     = textureLoad(gbuf_orm,      pix, 0);
-    let emissive_r = textureLoad(gbuf_emissive, pix, 0);
-    let emissive  = emissive_r.rgb;
-
-    let albedo    = albedo_a.rgb;
-    let alpha     = albedo_a.a;
-    let N_host    = normalize(normal_r.xyz);
-    let ao        = orm_r.r;
-    let roughness = orm_r.g;
-    let metallic  = orm_r.b;
+    // The surface the texel holds: the frame's G-buffer decode
+    // (`gbuffer_surface_at`, `//!use frame_surface`), the same `SurfaceData`
+    // a ray stream's hit unpacks to.
+    let surface = gbuffer_surface_at(GBufferSurfaceTexels(
+        textureLoad(gbuf_albedo, pix, 0),
+        textureLoad(gbuf_normal, pix, 0),
+        textureLoad(gbuf_orm, pix, 0),
+        textureLoad(gbuf_emissive, pix, 0),
+        textureLoad(gbuf_sss, pix, 0),
+        textureLoad(gbuf_extra, pix, 0),
+    ));
+    let emissive  = surface.emissive;
+    let albedo    = surface.albedo.rgb;
+    let alpha     = surface.alpha;
+    let N_host    = surface.normal;
+    let ao        = surface.ao;
+    let roughness = surface.roughness;
+    let metallic  = surface.metallic;
 
     // Screen-space AO (SSAO or pre-baked AO).  Sampled by normalised screen UV
     // so it works regardless of whether the AO texture is at a different resolution.
@@ -996,7 +852,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         // `GBUFFER_TAG_PLAIN` cannot be that marker: every classic mesh
         // without a surface payload writes it too. Anything unmarked was written by
         // the classic G-buffer raster.
-        let painted_by_virtual_geometry = albedo_a.a < 0.004;
+        let painted_by_virtual_geometry = alpha < 0.004;
         if is_traced {
             return vec4<f32>(0.12, 0.78, 1.0, 1.0);
         }
@@ -1040,8 +896,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         return vec4<f32>(vec3<f32>(ao_combined), 1.0);
     }
     if globals.debug_mode == 13u {
-        let f0 = clamp(vec3<f32>(normal_r.w, orm_r.a, emissive_r.a), vec3<f32>(0.0), vec3<f32>(1.0));
-        return vec4<f32>(f0, 1.0);
+        return vec4<f32>(clamp(surface.specular_f0, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
     }
     if globals.debug_mode == 14u {
         if !gbuffer_has_payload(surface_tag) {
@@ -1124,7 +979,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     }
 
     // ── PBR setup ─────────────────────────────────────────────────────────────
-    let F0  = clamp(vec3<f32>(normal_r.w, orm_r.a, emissive_r.a), vec3<f32>(0.0), vec3<f32>(0.999));
+    let F0  = clamp(surface.specular_f0, vec3<f32>(0.0), vec3<f32>(0.999));
     let V   = normalize(eye - world_pos);
     let NdV = max(dot(N, V), 0.0);
 
@@ -1134,24 +989,21 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     }
 
     // ── SSS / Extra surface data ──────────────────────────────────────────────
-    let sss_r        = textureLoad(gbuf_sss, pix, 0);
-    let extra_r      = textureLoad(gbuf_extra, pix, 0);
-    // Flags are numerically encoded in the G-buffer so the Rgba16Float target
-    // can preserve these small integer values exactly.
-    let surface_flags = u32(round(extra_r.a));
+    let sss_color     = surface.subsurface_color;
+    let surface_flags = surface.flags;
     let is_anisotropic = (surface_flags & SURFACE_FLAG_ANISOTROPIC) != 0u;
     let has_subsurface = (surface_flags & SURFACE_FLAG_SUBSURFACE) != 0u;
     let low_specular   = (surface_flags & SURFACE_FLAG_LOW_SPECULAR) != 0u;
     let two_sided      = (surface_flags & SURFACE_FLAG_TWO_SIDED) != 0u;
 
     if globals.debug_mode == 15u {
-        return vec4<f32>(sss_r.rgb, 1.0);
+        return vec4<f32>(sss_color, 1.0);
     }
     if globals.debug_mode == 16u {
         return vec4<f32>(
-            clamp(extra_r.r, 0.0, 1.0),
-            clamp(extra_r.g, 0.0, 1.0),
-            fract(extra_r.b / (2.0 * 3.14159265)),
+            clamp(surface.roughness_aniso_x, 0.0, 1.0),
+            clamp(surface.roughness_aniso_y, 0.0, 1.0),
+            fract(surface.aniso_rotation / (2.0 * 3.14159265)),
             1.0,
         );
     }
@@ -1164,7 +1016,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         );
     }
     if globals.debug_mode == 18u {
-        let radius = max(sss_r.a, 0.0);
+        let radius = max(surface.subsurface_radius, 0.0);
         let readable_radius = radius / (1.0 + radius);
         return vec4<f32>(vec3<f32>(readable_radius), 1.0);
     }
@@ -1226,25 +1078,6 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         return vec4<f32>(complexity_color(surface_work / 32.0), 1.0);
     }
 
-    // Anisotropic GGX parameters
-    let aniso_ax    = extra_r.r;
-    let aniso_ay    = extra_r.g;
-    let aniso_rot   = extra_r.b;
-
-    // Compute aniso tangent direction from world normal + rotation
-    var aniso_T = vec3<f32>(0.0);
-    if is_anisotropic {
-        let up_ref = vec3<f32>(0.0, 1.0, 0.0);
-        var T_ref = normalize(cross(cross(N, up_ref), N));
-        if length(T_ref) < 0.001 {
-            T_ref = normalize(cross(cross(N, vec3<f32>(1.0, 0.0, 0.0)), N));
-        }
-        let B = cross(N, T_ref);
-        let cos_a = cos(aniso_rot);
-        let sin_a = sin(aniso_rot);
-        aniso_T = T_ref * cos_a + B * sin_a;
-    }
-
     // ── Direct lighting ────────────────────────────────────────────────────────
     // GPU-driven: iterate all visible lights (already culled on CPU by distance).
     // Shadow factor affects ONLY direct lighting (Lo).  Ambient / indirect light
@@ -1254,6 +1087,12 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         return vec4<f32>(vec3<f32>(clamp(sun_seen.x, 0.0, 1.0)), 1.0);
     }
     var Lo = vec3<f32>(0.0);
+    // The surface as the lighting takes it: in its content's space.
+    var lit_surface = surface;
+    lit_surface.normal = N;
+    lit_surface.specular_f0 = F0;
+    // Its frame once, not a light (`bsdf_prepare`).
+    let lit = bsdf_prepare(lit_surface);
     if ENABLE_LIGHTING {
         let tile_x = u32(in.clip_pos.x) / TILE_SIZE;
         let tile_y = u32(in.clip_pos.y) / TILE_SIZE;
@@ -1271,11 +1110,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                 if dist > light.position_range.w { continue; }
             }
             // A surface facing away from the light receives nothing from it:
-            // pbr_direct_light returns exactly zero whenever N·L <= 0, so its
-            // shadow and transmittance lookups cannot change Lo. L is built
-            // the way pbr_direct_light builds it; the margin keeps the skip
-            // strictly inside that case even if the two dot products round
-            // differently.
+            // `bsdf_eval` is exactly zero whenever N·L <= 0 on a one-sided
+            // surface, so its shadow and transmittance lookups cannot change
+            // Lo. The margin keeps the skip strictly inside that case even if
+            // the two dot products round differently.
             var to_light_dir: vec3<f32>;
             if light.light_type == 0u {
                 to_light_dir = normalize(-light.direction_outer.xyz);
@@ -1311,13 +1149,17 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
                     sf *= clamp(sun_seen.x, 0.0, 1.0);
                 }
             }
-            if back {
-                let incidence = light_incidence(light, world_pos, eye);
-                Lo += transmit * sss_r.rgb / PI * incidence.radiance * max(-dot(N, incidence.L), 0.0) * sf;
-                continue;
-            }
-            let sss_color = sss_r.rgb;
-            Lo += transmit * pbr_direct_light(light, world_pos, eye, N, V, F0, albedo, roughness, metallic, sf, is_anisotropic, aniso_T, aniso_ax, aniso_ay, has_subsurface, sss_color);
+            // The light as it reaches the point (`light_incidence`, the
+            // lights' one evaluation, the sampler's too) times how the
+            // surface returns it (`bsdf_eval`, the frame's one BSDF: a
+            // two-sided surface's back passes `subsurface_color / pi`). A
+            // subsurface surface lets some light past its shadow.
+            let incidence = light_incidence(light, world_pos, eye);
+            // Light too faint to see is skipped (the lighting's cut before
+            // the BSDF moved to the frame; light_forward's too).
+            if !back && all(incidence.radiance < vec3<f32>(0.002)) { continue; }
+            let visible = select(sf, mix(sf, 1.0, 0.3), has_subsurface && !back);
+            Lo += transmit * bsdf_eval_prepared(lit, V, incidence.L) * incidence.radiance * visible;
         }
     }
 
@@ -1329,7 +1171,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     var sss_transmission = vec3<f32>(0.0);
     if has_subsurface {
         let rim = pow(1.0 - NdV, 3.0);
-        sss_transmission = sss_r.rgb * rim * 1.2;
+        sss_transmission = sss_color * rim * 1.2;
     }
 
     // Indirect specular is composed by fs_reflection in a second draw. This
@@ -1499,14 +1341,14 @@ fn fs_reflection(in: VSOut) -> @location(0) vec4<f32> {
     }
     let V = normalize(eye - world_pos);
     let NdV = max(dot(N, V), 0.0);
-    let F_ibl = fresnel_schlick_roughness(NdV, F0, roughness);
+    let F_ibl = bsdf_fresnel_roughness(NdV, F0, roughness);
     let R = reflect(-V, N);
 
     var spec_ind = vec3<f32>(0.0);
     if globals.enable_env_reflections != 0u {
         let env_lod = roughness * ENV_MAX_LOD;
         let env_sample = sample_reflection_environment(world_pos, R, env_lod);
-        let env_brdf = env_brdf_approx(NdV, roughness);
+        let env_brdf = bsdf_environment_split_sum(NdV, roughness);
         spec_ind = env_sample * (F0 * env_brdf.x + env_brdf.y);
     }
 

@@ -9,7 +9,11 @@
 //!   per-caster dirty flags what casts into them reads;
 //! - the sun's occlusion by terrain that does not draw into the shadow maps
 //!   ([`sun_occlusion`]), which such a terrain publishes and media read;
-//! - in WGSL: [`LIGHT_LIST_SNIPPET`] (`//!use light_list`),
+//! - the IES profiles and light functions ([`IesProfiles`], the stand-in
+//!   [`ies_stand_in`]);
+//! - in WGSL: [`LIGHT_LIST_SNIPPET`] (`//!use light_list`, with the one
+//!   falloff `light_arrival`), [`LIGHT_INCIDENCE_SNIPPET`]
+//!   (`//!use light_incidence`, a light's full incidence at a point),
 //!   [`LIGHT_FORWARD_SNIPPET`] (`//!use light_forward`, the forward light
 //!   function), [`SHADOW_ATLAS_SNIPPET`] (`//!use shadow_atlas`),
 //!   [`SHADOW_LOOKUP_SNIPPET`] (`//!use shadow_lookup`) and
@@ -26,6 +30,7 @@
 //! hosts ([`host_rows`]).
 
 pub mod binning;
+mod ies;
 mod light;
 mod models;
 mod settings;
@@ -33,6 +38,7 @@ pub mod shadows;
 pub mod sun_occlusion;
 
 pub use binning::*;
+pub use ies::{ies_sampler, ies_stand_in, IesProfiles};
 pub use light::*;
 pub use models::LIGHT_FIELD_MODEL;
 pub use settings::SHADOWS;
@@ -49,8 +55,17 @@ pub mod host_rows;
 pub const LIGHT_LIST_SNIPPET: helio_core::shader::ShaderSnippet =
     helio_core::wgsl_snippet!("//!use light_list", "shaders/light_list.wgsl");
 
+/// A light's full incidence at a point (`//!use light_incidence`, with
+/// `light_list` and the frame's `frame_sky`): `light_incidence(light, p,
+/// eye)`, the falloff (`light_arrival`), the IES profile, the light function
+/// and the air a directional light crosses. The deferred lighting and the
+/// lights' sampler both call it. The reader binds `ies_textures`,
+/// `ies_sampler` and `sky_frame`.
+pub const LIGHT_INCIDENCE_SNIPPET: helio_core::shader::ShaderSnippet =
+    helio_core::wgsl_snippet!("//!use light_incidence", "shaders/light_incidence.wgsl");
+
 /// The forward light function (`//!use light_forward`, with `light_list`
-/// and `pbr_eval`): `light_forward(frag_xy, num_tiles_x, ...)` sums the
+/// and the frame's `frame_surface` and `frame_bsdf`): `light_forward(frag_xy, num_tiles_x, ...)` sums the
 /// direct light of the pixel's tile, for drawers that light what they draw.
 pub const LIGHT_FORWARD_SNIPPET: helio_core::shader::ShaderSnippet =
     helio_core::wgsl_snippet!("//!use light_forward", "shaders/light_forward.wgsl");

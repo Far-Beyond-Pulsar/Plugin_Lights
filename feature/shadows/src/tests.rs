@@ -13,7 +13,9 @@ fn validate(label: &str, source: &str) {
 
 /// The snippets the lights' shaders opt into, as their passes compose them.
 const SNIPPETS: &[helio_core::shader::ShaderSnippet] = &[
-    helio_mats::PBR_EVAL_SNIPPET,
+    helio_frame_api::gbuffer::SURFACE_SNIPPET,
+    helio_frame_api::gbuffer::BSDF_SNIPPET,
+    helio_light_api::LIGHT_INCIDENCE_SNIPPET,
     helio_frame_api::lighting::sky::SKY_SNIPPET,
     helio_frame_api::lighting::sky::SKY_TABLE_SNIPPET,
     helio_frame_api::lighting::sun_transmittance::SNIPPET,

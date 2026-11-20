@@ -13,7 +13,6 @@ wgpu = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
-helio-mats = { workspace = true }
 pollster = "0.4"
 
 naga = { version = "30", features = ["wgsl-in"] }

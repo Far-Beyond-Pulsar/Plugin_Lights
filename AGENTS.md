@@ -29,8 +29,8 @@ rather than copying rules here.
 ## Key commands (from the Pulsar-Native root)
 
 ```
-cargo check -p helio-light-api -p lights_component -p lights_plugin -p lights-examples -p helio-pass-billboard -p helio-pass-light-cull -p helio-pass-deferred-light -p helio-pass-hlfs -p helio-pass-shadow-matrix -p helio-light-host --tests
-cargo test -p helio-light-api -p lights_component -p helio-pass-billboard -p helio-pass-light-cull -p helio-pass-deferred-light -p helio-pass-hlfs -p helio-pass-shadow-matrix
+cargo check -p helio-light-api -p lights_component -p lights_plugin -p lights-examples -p helio-pass-billboard -p helio-pass-light-cull -p helio-pass-light-sampler -p helio-pass-deferred-light -p helio-pass-hlfs -p helio-pass-shadow-matrix -p helio-light-host --tests
+cargo test -p helio-light-api -p lights_component -p helio-pass-billboard -p helio-pass-light-cull -p helio-pass-light-sampler -p helio-pass-deferred-light -p helio-pass-hlfs -p helio-pass-shadow-matrix
 cargo test -p one_owner          every concept has one owner (scans this plugin)
 cargo test -p installed_plugins  the installed set and absent plugins
 ```

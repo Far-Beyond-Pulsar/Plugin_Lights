@@ -10,9 +10,8 @@ provides = [
     { id = "pulsar.lights.rows", kind = "buffer", members = ["scene_lights", "directional_lights", "billboard_instances"], version = 1 },
     { id = "pulsar.lights.api", kind = "api", members = ["helio-light-api", "helio-light-host", "helio-pass-deferred-light"], version = 1 },
 ]
-requires = [
-    { id = "pulsar.materials.api", optional = true },
-]
+# Nothing: how a surface reflects light is the frame's BSDF.
+requires = []
 
 # The plugin's root crate (the package in this directory): the one place it
 # registers everything it contributes. A game links it without its `editor`
