@@ -1221,8 +1221,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     if globals.debug_mode == 29u {
         return vec4<f32>(0.0, 0.0, 0.3, 1.0);
     }
-    // The probes' irradiance, or (36) the resolve's view of the probes.
-    if globals.debug_mode == 28u || globals.debug_mode == 36u {
+    // The probes' irradiance, or the resolve's view of the probes (36) or of
+    // the radiance cache (39).
+    if globals.debug_mode == 28u || globals.debug_mode == 36u || globals.debug_mode == 39u {
         return vec4<f32>(select(vec3<f32>(0.25, 0.0, 0.25), gi, gi_weight > 0.0), 1.0);
     }
 
@@ -1298,7 +1299,7 @@ fn fs_reflection(in: VSOut) -> @location(0) vec4<f32> {
         || globals.debug_mode == 28u || globals.debug_mode == 29u
         || globals.debug_mode == 37u || globals.debug_mode == 38u
         || globals.debug_mode == 34u || globals.debug_mode == 35u
-        || globals.debug_mode == 36u
+        || globals.debug_mode == 36u || globals.debug_mode == 39u
         || (globals.debug_mode >= 100u && globals.debug_mode < 128u)
         || globals.debug_mode == 20u || globals.debug_mode == 21u
         || globals.debug_mode == 32u || globals.debug_mode == 33u
