@@ -95,7 +95,7 @@ struct ShadowCasterCounts {
 // the eye is the atmosphere composite's.
 @group(0) @binding(9) var<uniform> sky_frame: SkyFrame;
 // The sky over each surface (`SkyFrame` docs, `SKY_TABLE_*`).
-@group(0) @binding(10) var<uniform> sky_table: array<vec4<f32>, 2304>;
+@group(0) @binding(10) var<uniform> sky_table: array<vec4<f32>, SKY_TABLE_VEC4S>;
 
 // The frame's view remaps (`helio_frame_api::lighting::VIEW_REMAPS`): per
 // chain, the matrix taking a point of the host world into the world the
@@ -1190,7 +1190,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     if sky_frame.planet.w > 0.5 && content_space == 0u {
         // The sky over the surface, by its altitude and sun angle, not the
         // eye's.
-        hemi = sky_table_eval((world_pos - eye) * 0.001, N, vec3<f32>(1.0)) * albedo;
+        hemi = sky_table_eval((world_pos - eye) * 0.001, N) * albedo;
     } else {
         let sky_color    = globals.ambient_color.rgb * globals.ambient_intensity;
         let ground_color = sky_color * 0.15;
