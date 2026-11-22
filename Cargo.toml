@@ -8,12 +8,17 @@ description = "Lights (`pulsar.lights`): the plugin's root crate, the one place 
 autoexamples = false
 
 [features]
+# The plugin as a library of its own, loaded by the editor from plugins/editor:
+# cargo build -p <this package> --release --features dll
+dll = ["editor", "dep:plugin_editor_api", "plugin_editor_api/editor", "plugin_editor_api/shared-dylibs"]
 # The editor's registrations (the hierarchy icon, the Create menu's lights,
 # the environment mixer's entries and starter setups) and the crates they
 # need. A game links the root without it, so it takes no editor dependency.
 editor = ["dep:lights_editor", "dep:ui_level_editor"]
 
 [dependencies]
+# The plugin library's editor plugin entry point (feature `dll`).
+plugin_editor_api = { workspace = true, optional = true }
 # The plugin gate and the registrations' collection.
 pulsar_plugins = { workspace = true }
 # The plugin's crates.
@@ -60,3 +65,7 @@ helio-frame-api = { workspace = true }
 
 [lints]
 workspace = true
+
+# Also the plugin as a library of its own (feature `dll`, loaded by the editor).
+[lib]
+crate-type = ["cdylib", "rlib"]
