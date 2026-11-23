@@ -1173,16 +1173,20 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     // With an atmosphere the sky itself is the ambient light: the sky over
     // the surface (its altitude and sun angle), the lit ground below its
     // horizon included, cosine-convolved.
+    // Light from every direction above reflects by the diffuse lobe's
+    // reflectance (`bsdf_diffuse_reflectance`: what the specular lobe
+    // leaves, none for metals), as the BSDF reflects the direct light.
+    let diffuse = bsdf_diffuse_reflectance(surface, NdV);
     var hemi: vec3<f32>;
     if sky_frame.planet.w > 0.5 && content_space == 0u {
         // The sky over the surface, by its altitude and sun angle, not the
         // eye's.
-        hemi = sky_table_eval((world_pos - eye) * 0.001, N, vec3<f32>(1.0)) * albedo;
+        hemi = sky_table_eval((world_pos - eye) * 0.001, N, vec3<f32>(1.0)) * diffuse;
     } else {
         let sky_color    = globals.ambient_color.rgb * globals.ambient_intensity;
         let ground_color = sky_color * 0.15;
         let hemi_t       = N.y * 0.5 + 0.5;
-        hemi             = mix(ground_color, sky_color, hemi_t) * albedo;
+        hemi             = mix(ground_color, sky_color, hemi_t) * diffuse;
     }
     // Where the frame's indirect diffuse holds the point (GI probes' bounce
     // light, a bake's lightmapped irradiance), it replaces the sky's: no sky
@@ -1200,10 +1204,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         // darker (a stop a third of full), blue where no probe holds it.
         if globals.debug_mode == 29u {
             let l = vec3<f32>(0.2126, 0.7152, 0.0722);
-            let stops = log2(max(dot(gi * albedo, l), 1e-6) / max(dot(hemi, l), 1e-6)) * gi_weight;
+            let stops = log2(max(dot(gi * diffuse, l), 1e-6) / max(dot(hemi, l), 1e-6)) * gi_weight;
             return vec4<f32>(clamp(-stops / 3.0, 0.0, 1.0), clamp(stops / 3.0, 0.0, 1.0), 0.0, 1.0);
         }
-        hemi = mix(hemi, gi * albedo, gi_weight);
+        hemi = mix(hemi, gi * diffuse, gi_weight);
     }
     if globals.debug_mode == 29u {
         return vec4<f32>(0.0, 0.0, 0.3, 1.0);
