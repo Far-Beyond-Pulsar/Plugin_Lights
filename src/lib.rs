@@ -33,6 +33,13 @@ pulsar_plugins::installed!("pulsar-plugin.toml", build);
 /// Everything the plugin registers (runtime always, editor with the `editor`
 /// feature).
 pub fn build(p: &mut pulsar_plugins::PluginBuilder) {
+    // The icon the editor shows beside this plugin (Extensions window).
+    #[cfg(feature = "editor")]
+    p.add(pulsar_plugins::PluginIcon {
+        origin: p.origin(),
+        format: pulsar_plugins::IconFormat::Png,
+        bytes: include_bytes!("../icon.png"),
+    });
     runtime::build(p);
     #[cfg(feature = "editor")]
     editor::build(p);
@@ -46,3 +53,8 @@ pub mod runtime;
 
 #[cfg(feature = "editor")]
 pub mod editor;
+
+// The plugin as a library of its own, loaded by the editor from `plugins/editor`
+// (`cargo build -p <this package> --release --features dll`).
+#[cfg(feature = "dll")]
+plugin_editor_api::export_library_plugin!();
