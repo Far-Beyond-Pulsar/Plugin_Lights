@@ -29,12 +29,13 @@ pub use gpu_types::*;
 /// Sampled textures visible to each deferred-light fragment entry point
 /// (their pipeline layouts; a test counts them).
 ///
-/// Base lighting uses ten G-buffer inputs (the depth and the sun's
+/// Base lighting uses nine G-buffer inputs (the depth and the sun's
 /// visibility included) and four scene textures (the dynamic and static
-/// shadow atlases, the IES profiles, the shadow transmittance). Reflection composition uses six G-buffer inputs, the
-/// environment cubes, two indirect-specular layers and the transmission.
-pub const BASE_SAMPLED_TEXTURE_COUNT: u32 = 14;
-pub const REFLECTION_SAMPLED_TEXTURE_COUNT: u32 = 10;
+/// shadow atlases, the IES profiles, the shadow transmittance). Reflection
+/// composition uses five G-buffer inputs, the environment cubes, two
+/// indirect-specular layers and the transmission.
+pub const BASE_SAMPLED_TEXTURE_COUNT: u32 = 13;
+pub const REFLECTION_SAMPLED_TEXTURE_COUNT: u32 = 9;
 const _: () = assert!(BASE_SAMPLED_TEXTURE_COUNT <= 16);
 const _: () = assert!(REFLECTION_SAMPLED_TEXTURE_COUNT <= 16);
 
@@ -147,9 +148,6 @@ pub struct DeferredLightPass {
     /// only source this pass reads. `reflection_capture_count` is 0
     /// whenever this is bound, so it's never dereferenced.
     fallback_reflection_captures: wgpu::Buffer,
-    /// 1×1 white R8Unorm fallback used when neither SSAO nor baked AO is available.
-    fallback_ao_view: wgpu::TextureView,
-    fallback_ao_sampler: wgpu::Sampler,
     /// 1×1 Rg16Float fallback for the G-buffer's surface channel: the plain tag.
     fallback_surface_view: wgpu::TextureView,
     /// 1×1 black Rgba16Float stand-ins for the indirect-specular layers
@@ -613,52 +611,6 @@ impl DeferredLightPass {
             mapped_at_creation: false,
         });
 
-        // Fallback 1×1 white R8Unorm AO texture.
-        // Used when neither SSAO nor pre-baked AO is available so the shader sees
-        // AO = 1.0 (fully unoccluded) rather than undefined data.
-        let fallback_ao_tex = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Deferred Fallback AO"),
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &fallback_ao_tex,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &[255u8], // white = AO 1.0
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(1),
-                rows_per_image: Some(1),
-            },
-            wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-        );
-        let fallback_ao_view = fallback_ao_tex.create_view(&Default::default());
-        let fallback_ao_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("Deferred Fallback AO Sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-
         // Fallback 1×1 black Rgba16Float SSR texture (no SSR available).
         let (_fallback_ssr_texture, fallback_ssr_view) =
             black_2d_texture(device, queue, "Deferred Fallback SSR");
@@ -748,8 +700,6 @@ impl DeferredLightPass {
             fallback_env_sampler,
             fallback_transmission_view,
             fallback_reflection_captures,
-            fallback_ao_view,
-            fallback_ao_sampler,
             fallback_surface_view,
             fallback_ssr_view,
             fallback_planar_view,
@@ -826,7 +776,6 @@ impl RenderPass for DeferredLightPass {
             SKY_FRAME,
             SKY_TABLE,
             SUN_VISIBILITY,
-            "ssao",
             helio_light_api::TILE_LIGHT_COUNTS,
             INDIRECT_DIFFUSE,
             helio_core::resource_keys::RENDER_ENVIRONMENT,
@@ -941,13 +890,6 @@ impl RenderPass for DeferredLightPass {
             )
         })?;
 
-        // Screen-space AO: use baked AO (via frame.ssao, which SsaoPass publishes as override
-        // when a baked AO texture is present) or fall back to the 1×1 white texture.
-        let ao_view = ctx
-            .registry
-            .get(helio_core::ResourceKey::new("ssao"))
-            .unwrap_or(&self.fallback_ao_view);
-
         // The G-buffer's surface channel
         let surface_view = ctx
             .registry
@@ -981,7 +923,6 @@ impl RenderPass for DeferredLightPass {
             gbuffer.views[2],
             gbuffer.views[3],
             ctx.depth,
-            ao_view,
             surface_view,
             sss_view,
             extra_view,
@@ -1003,12 +944,6 @@ impl RenderPass for DeferredLightPass {
                         binding: 4,
                         resource: wgpu::BindingResource::TextureView(ctx.depth),
                     },
-                    // Screen-space AO (binding 5): SSAO or pre-baked AO from SsaoPass.publish()
-                    texture_view_entry(5, ao_view),
-                    wgpu::BindGroupEntry {
-                        binding: 6,
-                        resource: wgpu::BindingResource::Sampler(&self.fallback_ao_sampler),
-                    },
                     // The G-buffer's surface channel (binding 7)
                     texture_view_entry(7, surface_view),
                     // SSS data (binding 8)
@@ -1026,7 +961,6 @@ impl RenderPass for DeferredLightPass {
             gbuffer.views[2],
             gbuffer.views[3],
             ctx.depth,
-            ao_view,
             surface_view,
         ]
         .into_iter()
@@ -1044,11 +978,6 @@ impl RenderPass for DeferredLightPass {
                         wgpu::BindGroupEntry {
                             binding: 4,
                             resource: wgpu::BindingResource::TextureView(ctx.depth),
-                        },
-                        texture_view_entry(5, ao_view),
-                        wgpu::BindGroupEntry {
-                            binding: 6,
-                            resource: wgpu::BindingResource::Sampler(&self.fallback_ao_sampler),
                         },
                         texture_view_entry(7, surface_view),
                     ],
@@ -1459,12 +1388,7 @@ impl RenderPass for DeferredLightPass {
             DebugViewDescriptor {
                 name: "Combined AO",
                 debug_mode: 12,
-                description: "Material AO multiplied by screen-space AO",
-            },
-            DebugViewDescriptor {
-                name: "Screen-Space AO",
-                debug_mode: 37,
-                description: "Screen-space ambient occlusion sampled by deferred lighting, without material AO",
+                description: "The occlusion the lighting multiplies indirect light by: the material's (a traced surface's own included)",
             },
             DebugViewDescriptor {
                 name: "Tile Light Count",
@@ -1747,15 +1671,6 @@ fn base_group_1_layout() -> Vec<wgpu::BindGroupLayoutEntry> {
             },
             count: None,
         },
-        // Screen-space AO (SSAO result or pre-baked AO). Filterable so the
-        // bilinear sampler can soften the AO at the edges of the screen.
-        texture_entry(5, wgpu::TextureSampleType::Float { filterable: true }),
-        wgpu::BindGroupLayoutEntry {
-            binding: 6,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        },
         // The G-buffer's surface channel (binding 7, Rg16Float)
         texture_entry(7, wgpu::TextureSampleType::Float { filterable: false }),
         // SSS data: subsurface_color.rgb + subsurface_radius (Rgba16Float)
@@ -1856,13 +1771,6 @@ fn reflection_group_1_layout() -> Vec<wgpu::BindGroupLayoutEntry> {
                 view_dimension: wgpu::TextureViewDimension::D2,
                 multisampled: false,
             },
-            count: None,
-        },
-        texture_entry(5, wgpu::TextureSampleType::Float { filterable: true }),
-        wgpu::BindGroupLayoutEntry {
-            binding: 6,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
             count: None,
         },
         texture_entry(7, wgpu::TextureSampleType::Float { filterable: false }),
