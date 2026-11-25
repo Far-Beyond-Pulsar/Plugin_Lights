@@ -95,7 +95,7 @@ struct ShadowCasterCounts {
 // the eye is the atmosphere composite's.
 @group(0) @binding(9) var<uniform> sky_frame: SkyFrame;
 // The sky over each surface (`SkyFrame` docs, `SKY_TABLE_*`).
-@group(0) @binding(10) var<uniform> sky_table: array<vec4<f32>, 2304>;
+@group(0) @binding(10) var<uniform> sky_table: array<vec4<f32>, SKY_TABLE_VEC4S>;
 
 // The frame's view remaps (`helio_frame_api::lighting::VIEW_REMAPS`): per
 // chain, the matrix taking a point of the host world into the world the
@@ -156,10 +156,6 @@ fn load_shadow_occluder_depth(pixel: vec2<i32>, layer: u32) -> f32 {
 @group(1) @binding(2) var gbuf_orm:      texture_2d<f32>;       // Rgba8Unorm   AO, roughness, metallic
 @group(1) @binding(3) var gbuf_emissive: texture_2d<f32>;       // Rgba16Float  pre-multiplied emissive
 @group(1) @binding(4) var gbuf_depth:    texture_depth_2d;      // Depth32Float
-// R8Unorm screen-space AO (SSAO or pre-baked equivalent). 1.0 = fully lit, 0.0 = fully occluded.
-// Bound to a 1×1 white fallback texture when neither SSAO nor baked AO is available.
-@group(1) @binding(5) var screen_ao:     texture_2d<f32>;
-@group(1) @binding(6) var screen_ao_samp: sampler;
 // The G-buffer's surface channel (Rg16Float): the frame's surface tags, or the
 // payload a feature requested (`helio_frame_api::gbuffer::SURFACE`).
 @group(1) @binding(7) var gbuf_surface: texture_2d<f32>;
@@ -825,14 +821,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     let roughness = surface.roughness;
     let metallic  = surface.metallic;
 
-    // Screen-space AO (SSAO or pre-baked AO).  Sampled by normalised screen UV
-    // so it works regardless of whether the AO texture is at a different resolution.
-    let screen_uv    = in.clip_pos.xy / vec2<f32>(textureDimensions(gbuf_albedo));
-    // The G-buffer's surface tag (the prelude's `GBUFFER_TAG_*`): a
-    // traced surface or dense geometry carries its own occlusion, which a
-    // screen-space AO kernel would overwhelm (coarse lattice edges at
-    // distance, a meadow's blades), so it gets material AO and hemisphere
-    // fill only.
+    // The G-buffer's surface tag (the prelude's `GBUFFER_TAG_*`).
     let surface_tag = textureLoad(gbuf_surface, pix, 0).rg;
     let is_traced = gbuffer_tagged(surface_tag, GBUFFER_TAG_TRACED);
     // A traced drawer's debug colours (trace cost, levels) unlit.
@@ -861,14 +850,12 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         }
         return vec4<f32>(1.0, 0.36, 0.08, 1.0);
     }
-    let ssao_factor  = select(textureSample(screen_ao, screen_ao_samp, screen_uv).r, 1.0, gbuffer_own_occlusion(surface_tag));
-    // Combined AO: material AO from G-buffer × screen-space AO.
-    let ao_combined  = ao * ssao_factor;
-
-    if globals.debug_mode == 37u {
-        let screen_ao_value = textureSample(screen_ao, screen_ao_samp, screen_uv).r;
-        return vec4<f32>(vec3<f32>(screen_ao_value), 1.0);
-    }
+    // The material's occlusion (a traced terrain's and a meadow's own
+    // occlusion included: `gbuffer_own_occlusion`). The occlusion nearer
+    // than the frame's indirect diffuse resolves is its publisher's
+    // (`helio_frame_api::lighting::indirect_occlusion`), in the indirect
+    // diffuse itself.
+    let ao_combined  = ao;
     if globals.debug_mode == 38u {
         let tile_x = u32(pix.x) / TILE_SIZE;
         let tile_y = u32(pix.y) / TILE_SIZE;
@@ -1186,16 +1173,20 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     // With an atmosphere the sky itself is the ambient light: the sky over
     // the surface (its altitude and sun angle), the lit ground below its
     // horizon included, cosine-convolved.
+    // Light from every direction above reflects by the diffuse lobe's
+    // reflectance (`bsdf_diffuse_reflectance`: what the specular lobe
+    // leaves, none for metals), as the BSDF reflects the direct light.
+    let diffuse = bsdf_diffuse_reflectance(surface, NdV);
     var hemi: vec3<f32>;
     if sky_frame.planet.w > 0.5 && content_space == 0u {
         // The sky over the surface, by its altitude and sun angle, not the
         // eye's.
-        hemi = sky_table_eval((world_pos - eye) * 0.001, N, vec3<f32>(1.0)) * albedo;
+        hemi = sky_table_eval((world_pos - eye) * 0.001, N) * diffuse;
     } else {
         let sky_color    = globals.ambient_color.rgb * globals.ambient_intensity;
         let ground_color = sky_color * 0.15;
         let hemi_t       = N.y * 0.5 + 0.5;
-        hemi             = mix(ground_color, sky_color, hemi_t) * albedo;
+        hemi             = mix(ground_color, sky_color, hemi_t) * diffuse;
     }
     // Where the frame's indirect diffuse holds the point (GI probes' bounce
     // light, a bake's lightmapped irradiance), it replaces the sky's: no sky
@@ -1213,16 +1204,17 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         // darker (a stop a third of full), blue where no probe holds it.
         if globals.debug_mode == 29u {
             let l = vec3<f32>(0.2126, 0.7152, 0.0722);
-            let stops = log2(max(dot(gi * albedo, l), 1e-6) / max(dot(hemi, l), 1e-6)) * gi_weight;
+            let stops = log2(max(dot(gi * diffuse, l), 1e-6) / max(dot(hemi, l), 1e-6)) * gi_weight;
             return vec4<f32>(clamp(-stops / 3.0, 0.0, 1.0), clamp(stops / 3.0, 0.0, 1.0), 0.0, 1.0);
         }
-        hemi = mix(hemi, gi * albedo, gi_weight);
+        hemi = mix(hemi, gi * diffuse, gi_weight);
     }
     if globals.debug_mode == 29u {
         return vec4<f32>(0.0, 0.0, 0.3, 1.0);
     }
-    // The probes' irradiance, or (36) the resolve's view of the probes.
-    if globals.debug_mode == 28u || globals.debug_mode == 36u {
+    // The frame's indirect diffuse, or its publisher's views of the probes
+    // (36), its near field (37) or the radiance cache (39).
+    if globals.debug_mode == 28u || globals.debug_mode == 36u || globals.debug_mode == 37u || globals.debug_mode == 39u {
         return vec4<f32>(select(vec3<f32>(0.25, 0.0, 0.25), gi, gi_weight > 0.0), 1.0);
     }
 
@@ -1298,7 +1290,7 @@ fn fs_reflection(in: VSOut) -> @location(0) vec4<f32> {
         || globals.debug_mode == 28u || globals.debug_mode == 29u
         || globals.debug_mode == 37u || globals.debug_mode == 38u
         || globals.debug_mode == 34u || globals.debug_mode == 35u
-        || globals.debug_mode == 36u
+        || globals.debug_mode == 36u || globals.debug_mode == 39u
         || (globals.debug_mode >= 100u && globals.debug_mode < 128u)
         || globals.debug_mode == 20u || globals.debug_mode == 21u
         || globals.debug_mode == 32u || globals.debug_mode == 33u
@@ -1320,7 +1312,7 @@ fn fs_reflection(in: VSOut) -> @location(0) vec4<f32> {
 
     let screen_size = vec2<f32>(textureDimensions(gbuf_normal));
     let screen_uv = in.clip_pos.xy / screen_size;
-    let ao_combined = orm_r.r * textureSample(screen_ao, screen_ao_samp, screen_uv).r;
+    let ao_combined = orm_r.r;
     let surface_tag = textureLoad(gbuf_surface, pix, 0).rg;
 
     let ndc_xy = vec2<f32>(screen_uv.x * 2.0 - 1.0, 1.0 - screen_uv.y * 2.0);
