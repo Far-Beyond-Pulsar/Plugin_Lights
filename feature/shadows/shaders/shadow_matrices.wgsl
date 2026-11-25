@@ -128,6 +128,15 @@ fn compute_spot_matrix(light_idx: u32, position: vec3f, direction: vec3f, range:
 
 // ── Directional light cascades (CSM with sphere-fit + texel snap) ─────────────
 
+/// Cells across a cascade's width that its centre moves on (see
+/// `compute_directional_cascades`).
+const CASCADE_LATTICE_CELLS: f32 = 16.0;
+/// What the radius grows by so that a centre snapped to the nearest lattice
+/// point (off by at most half a cell along each axis, `sqrt(2) / 2` of a
+/// cell, a cell being `2R / CASCADE_LATTICE_CELLS` for the grown radius R)
+/// still leaves the slice covered: `1 / (1 - sqrt(2) / CASCADE_LATTICE_CELLS)`.
+const CASCADE_LATTICE_PAD: f32 = 1.097;
+
 /// `radius` rounded up to the lattice of eight steps an octave (`2^(k/8)`).
 fn stable_radius(radius: f32) -> f32 {
     let r = max(radius, 1.0e-3);
@@ -218,27 +227,37 @@ fn compute_directional_cascades(light_idx: u32, direction: vec3f) {
         // with every sub-texel wobble of the camera: with the camera still the
         // matrix is the same bits frame after frame, and the cached cascade is
         // reused. Costs at most one step (12.5 percent) of resolution.
-        let radius_snap = stable_radius(radius);
-        let texel_size = (2.0 * radius_snap) / f32(max(shadow_matrices[base + cascade_idx].policy.z, 128u));
+        //
+        // The centre moves on a lattice of CASCADE_LATTICE_CELLS cells across
+        // the cascade's width (a whole number of texels each, so the texels
+        // stay aligned and nothing shimmers): a fitted sphere follows the
+        // frustum slice, so its centre sweeps with every turn of the view as
+        // well as every step, and snapped texel by texel the cascade was
+        // redrawn nearly every frame a camera moved. On the lattice it is
+        // redrawn when the centre crosses a cell, and the radius carries the
+        // half cell diagonal a snapped centre can be off by, so the slice
+        // stays covered.
+        let radius_snap = stable_radius(radius * CASCADE_LATTICE_PAD);
+        let resolution = f32(max(shadow_matrices[base + cascade_idx].policy.z, 128u));
+        let texel_size = (2.0 * radius_snap) / resolution;
+        let snap = texel_size * max(floor(resolution / CASCADE_LATTICE_CELLS), 1.0);
 
-        // Texel-snapped light view
-        let light_view_raw = mat4_look_at_rh(centroid - dir * SCENE_DEPTH, centroid, up);
-        let centroid_ls_v4 = light_view_raw * vec4f(centroid, 1.0);
-        let centroid_ls = centroid_ls_v4.xyz / centroid_ls_v4.w;  // Match CPU transform_point3
-        let snap = texel_size;
-        let snapped_x = round(centroid_ls.x / snap) * snap;
-        let snapped_y = round(centroid_ls.y / snap) * snap;
-
-        // Apply snap offset in world space
-        let right_ws = normalize(vec3f(light_view_raw[0][0], light_view_raw[1][0], light_view_raw[2][0]));
-        let up_ws    = normalize(vec3f(light_view_raw[0][1], light_view_raw[1][1], light_view_raw[2][1]));
-        let snap_offset = right_ws * (snapped_x - centroid_ls.x) + up_ws * (snapped_y - centroid_ls.y);
+        // The light's axes come from its direction alone, never from the
+        // centroid: a basis built from the camera's position through
+        // `look_at` differs in the last bits from one frame to the next, and
+        // so would every matrix built on it (the change detection below hashes
+        // their bits). The lattice is fixed in the frame's space (the origin
+        // is the frame's), not centred on the cascade, where a snap would
+        // round a value that is zero by construction.
+        let right_ws = normalize(cross(dir, up));
+        let up_ws = cross(right_ws, dir);
+        let snapped_x = round(dot(right_ws, centroid) / snap) * snap;
+        let snapped_y = round(dot(up_ws, centroid) / snap) * snap;
         // Along the light's direction the eye is snapped too: it sets the depth
         // every texel stores, so an eye that followed the camera exactly would
         // change the whole cascade's contents (and matrix) with any movement.
-        let along = dot(dir, centroid);
-        let snapped_along = round(along / snap) * snap;
-        let stable_centroid = centroid + snap_offset + dir * (snapped_along - along);
+        let snapped_along = round(dot(dir, centroid) / snap) * snap;
+        let stable_centroid = right_ws * snapped_x + up_ws * snapped_y + dir * snapped_along;
 
         let light_view = mat4_look_at_rh(stable_centroid - dir * SCENE_DEPTH, stable_centroid, up);
         let proj = mat4_orthographic_rh(-radius_snap, radius_snap, -radius_snap, radius_snap, 0.1, SCENE_DEPTH * 2.0);
