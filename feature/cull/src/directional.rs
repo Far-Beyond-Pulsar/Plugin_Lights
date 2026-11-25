@@ -15,7 +15,7 @@ use crate::scene_rows::{DIRECTIONAL_LIGHTS_KEY, LIGHTS_KEY};
 
 /// The kernel and its one-row output.
 pub struct DirectionalLightsPick {
-    pipeline: wgpu::ComputePipeline,
+    pipeline: helio_core::shader::DeferredCompute,
     output: JoinOutput,
     bind: Option<(wgpu::Buffer, wgpu::BindGroup)>,
 }
@@ -28,7 +28,7 @@ impl DirectionalLightsPick {
             helio_core::include_wgsl!("../shaders/directional_lights.wgsl"),
             &[crate::LIGHT_LIST_SNIPPET],
         );
-        let pipeline = helio_core::shader::create_compute_pipeline(
+        let pipeline = helio_core::shader::create_compute_pipeline_deferred(
             device,
             wgpu::ComputePipelineDescriptor {
                 label: Some("Directional Lights"),

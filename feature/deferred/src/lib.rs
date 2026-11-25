@@ -86,9 +86,9 @@ struct DeferredGlobals {
 }
 
 pub struct DeferredLightPass {
-    pipeline: wgpu::RenderPipeline,
-    reflection_pipeline: wgpu::RenderPipeline,
-    reflection_debug_pipeline: wgpu::RenderPipeline,
+    pipeline: helio_core::shader::DeferredRender,
+    reflection_pipeline: helio_core::shader::DeferredRender,
+    reflection_debug_pipeline: helio_core::shader::DeferredRender,
     globals_buf: wgpu::Buffer,
     shadow_config_buf: wgpu::Buffer,
     bgl_0: wgpu::BindGroupLayout,
@@ -449,7 +449,7 @@ impl DeferredLightPass {
             bind_group_layouts: &[Some(&bgl_0), Some(&bgl_1), Some(&bgl_2), Some(&bgl_3)],
             immediate_size: 0,
         });
-        let pipeline = helio_core::shader::create_render_pipeline(
+        let pipeline = helio_core::shader::create_render_pipeline_deferred(
             &device,
             wgpu::RenderPipelineDescriptor {
                 label: Some("DeferredLight Pipeline"),
@@ -490,7 +490,7 @@ impl DeferredLightPass {
                 ],
                 immediate_size: 0,
             });
-        let reflection_pipeline = helio_core::shader::create_render_pipeline(
+        let reflection_pipeline = helio_core::shader::create_render_pipeline_deferred(
             &device,
             wgpu::RenderPipelineDescriptor {
                 label: Some("DeferredReflection Additive Pipeline"),
@@ -532,7 +532,7 @@ impl DeferredLightPass {
                 cache: None,
             },
         );
-        let reflection_debug_pipeline = helio_core::shader::create_render_pipeline(
+        let reflection_debug_pipeline = helio_core::shader::create_render_pipeline_deferred(
             &device,
             wgpu::RenderPipelineDescriptor {
                 label: Some("DeferredReflection Debug Pipeline"),

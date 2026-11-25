@@ -66,10 +66,10 @@ struct LightCullParams {
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub struct LightCullPass {
-    pipeline: wgpu::ComputePipeline,
+    pipeline: helio_core::shader::DeferredCompute,
     bgl: wgpu::BindGroupLayout,
     params_buf: wgpu::Buffer,
-    compact_pipeline: wgpu::ComputePipeline,
+    compact_pipeline: helio_core::shader::DeferredCompute,
     active_indices: wgpu::Buffer,
     compact_bind_group: Option<wgpu::BindGroup>,
     compact_key: Option<(u64, u64, u32)>,
@@ -218,7 +218,7 @@ impl LightCullPass {
             immediate_size: 0,
         });
 
-        let pipeline = helio_core::shader::create_compute_pipeline(
+        let pipeline = helio_core::shader::create_compute_pipeline_deferred(
             &device,
             wgpu::ComputePipelineDescriptor {
                 label: Some("LightCull Pipeline"),
@@ -232,7 +232,7 @@ impl LightCullPass {
 
         // Separate layout: the compaction output is writable here and read-only
         // in the tile kernel. Never bind the same buffer with conflicting usage.
-        let compact_pipeline = helio_core::shader::create_compute_pipeline(
+        let compact_pipeline = helio_core::shader::create_compute_pipeline_deferred(
             &device,
             wgpu::ComputePipelineDescriptor {
                 label: Some("LightCull Compact Pipeline"),

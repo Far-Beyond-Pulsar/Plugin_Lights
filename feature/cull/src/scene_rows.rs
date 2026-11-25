@@ -60,7 +60,7 @@ struct Uniforms {
 pub struct LightJoin {
     keys: LightJoinKeys,
     billboards: bool,
-    pipeline: wgpu::ComputePipeline,
+    pipeline: helio_core::shader::DeferredCompute,
     uniforms: wgpu::Buffer,
     /// Bound in place of the hidden flags while none are registered.
     empty: wgpu::Buffer,
@@ -80,7 +80,7 @@ impl LightJoin {
             label: Some("Light Join"),
             source: wgpu::ShaderSource::Wgsl(light_join_source().into()),
         });
-        let pipeline = helio_core::shader::create_compute_pipeline(
+        let pipeline = helio_core::shader::create_compute_pipeline_deferred(
             device,
             wgpu::ComputePipelineDescriptor {
                 label: Some("Light Join"),

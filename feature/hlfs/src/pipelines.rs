@@ -183,8 +183,8 @@ fn compute(
     shader: &wgpu::ShaderModule,
     entry: &str,
     layout: &wgpu::PipelineLayout,
-) -> wgpu::ComputePipeline {
-    helio_core::shader::create_compute_pipeline(
+) -> helio_core::shader::DeferredCompute {
+    helio_core::shader::create_compute_pipeline_deferred(
         &device,
         wgpu::ComputePipelineDescriptor {
             label: Some(label),
@@ -201,12 +201,12 @@ fn compute(
 /// reservoir bindings and denoising remain in the shared pass.
 pub(crate) enum VisibilityPipelines {
     ScreenSpace {
-        regular: wgpu::ComputePipeline,
-        small: wgpu::ComputePipeline,
+        regular: helio_core::shader::DeferredCompute,
+        small: helio_core::shader::DeferredCompute,
     },
     RayTraced {
-        regular: wgpu::ComputePipeline,
-        small: wgpu::ComputePipeline,
+        regular: helio_core::shader::DeferredCompute,
+        small: helio_core::shader::DeferredCompute,
     },
 }
 impl VisibilityPipelines {
@@ -282,7 +282,7 @@ impl VisibilityPipelines {
         }
     }
 
-    pub fn pipeline(&self, small_population: bool) -> &wgpu::ComputePipeline {
+    pub fn pipeline(&self, small_population: bool) -> &helio_core::shader::DeferredCompute {
         match self {
             Self::ScreenSpace { regular, small } | Self::RayTraced { regular, small } => {
                 if small_population {
@@ -305,19 +305,19 @@ pub(crate) struct Pipelines {
     pub temporal_bgl: wgpu::BindGroupLayout,
     pub spatial_bgl: wgpu::BindGroupLayout,
     pub composite_bgl: wgpu::BindGroupLayout,
-    pub compact: wgpu::ComputePipeline,
+    pub compact: helio_core::shader::DeferredCompute,
     /// Builds the live light row list (`compact_lights.wgsl` `list_live`).
-    pub list_live: wgpu::ComputePipeline,
-    pub depth_reduce: wgpu::ComputePipeline,
-    pub coarse: wgpu::ComputePipeline,
-    pub select_key: wgpu::ComputePipeline,
-    pub fine: wgpu::ComputePipeline,
+    pub list_live: helio_core::shader::DeferredCompute,
+    pub depth_reduce: helio_core::shader::DeferredCompute,
+    pub coarse: helio_core::shader::DeferredCompute,
+    pub select_key: helio_core::shader::DeferredCompute,
+    pub fine: helio_core::shader::DeferredCompute,
     pub visibility: VisibilityPipelines,
     pub transmission_visibility: Option<VisibilityPipelines>,
-    pub temporal: wgpu::ComputePipeline,
-    pub spatial: wgpu::ComputePipeline,
-    pub composite: wgpu::RenderPipeline,
-    pub transmission_composite: Option<wgpu::RenderPipeline>,
+    pub temporal: helio_core::shader::DeferredCompute,
+    pub spatial: helio_core::shader::DeferredCompute,
+    pub composite: helio_core::shader::DeferredRender,
+    pub transmission_composite: Option<helio_core::shader::DeferredRender>,
     pub rt_bgl: Option<wgpu::BindGroupLayout>,
     output_format: wgpu::TextureFormat,
 }
@@ -685,7 +685,7 @@ fn composite_pipeline(
     composite: &wgpu::BindGroupLayout,
     rt: Option<&wgpu::BindGroupLayout>,
     transmission: bool,
-) -> wgpu::RenderPipeline {
+) -> helio_core::shader::DeferredRender {
     let stage = if mode == HlfsMode::RayTraced {
         "ray_traced_composite"
     } else {
@@ -706,7 +706,7 @@ fn composite_pipeline(
         bind_group_layouts: &layouts,
         immediate_size: 0,
     });
-    helio_core::shader::create_render_pipeline(
+    helio_core::shader::create_render_pipeline_deferred(
         &device,
         wgpu::RenderPipelineDescriptor {
             label: Some("HLFS denoise and composite"),

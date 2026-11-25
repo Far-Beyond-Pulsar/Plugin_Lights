@@ -227,13 +227,13 @@ fn pipeline(
     module: &wgpu::ShaderModule,
     layouts: &[Option<&wgpu::BindGroupLayout>],
     entry: &str,
-) -> wgpu::ComputePipeline {
+) -> helio_core::shader::DeferredCompute {
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(entry),
         bind_group_layouts: layouts,
         immediate_size: 0,
     });
-    helio_core::shader::create_compute_pipeline(
+    helio_core::shader::create_compute_pipeline_deferred(
         device,
         wgpu::ComputePipelineDescriptor {
             label: Some(entry),
@@ -252,9 +252,9 @@ fn pipeline(
 pub struct LightGridPass {
     common: wgpu::BindGroupLayout,
     layout: wgpu::BindGroupLayout,
-    count: wgpu::ComputePipeline,
-    allocate: wgpu::ComputePipeline,
-    fill: wgpu::ComputePipeline,
+    count: helio_core::shader::DeferredCompute,
+    allocate: helio_core::shader::DeferredCompute,
+    fill: helio_core::shader::DeferredCompute,
     params: wgpu::Buffer,
     counts: wgpu::Buffer,
     offsets: wgpu::Buffer,
@@ -473,7 +473,7 @@ pub struct LightSamplePass {
     common: wgpu::BindGroupLayout,
     layout: wgpu::BindGroupLayout,
     empty: wgpu::BindGroupLayout,
-    pipeline: wgpu::ComputePipeline,
+    pipeline: helio_core::shader::DeferredCompute,
     sun: Option<SunTransmittance>,
     no_sun: (wgpu::TextureView, wgpu::Buffer),
     no_sky: wgpu::Buffer,

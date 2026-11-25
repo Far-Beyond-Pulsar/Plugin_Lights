@@ -43,7 +43,7 @@ enum Readback {
 }
 
 pub struct ShadowMatrixPass {
-    pipeline: wgpu::ComputePipeline,
+    pipeline: helio_core::shader::DeferredCompute,
     bind_group_layout: wgpu::BindGroupLayout,
     uniform_buf: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
@@ -55,7 +55,7 @@ pub struct ShadowMatrixPass {
     bound_lights: wgpu::Buffer,
     shadow_atlas_size: u32,
     face_capacity: u32,
-    caster_pipelines: [wgpu::ComputePipeline; 4],
+    caster_pipelines: [helio_core::shader::DeferredCompute; 4],
     caster_bind_group_layout: wgpu::BindGroupLayout,
     caster_bind_group: wgpu::BindGroup,
     caster_params_buf: wgpu::Buffer,
@@ -143,13 +143,13 @@ fn pipeline(
     layout: &wgpu::BindGroupLayout,
     shader: &wgpu::ShaderModule,
     entry: &str,
-) -> wgpu::ComputePipeline {
+) -> helio_core::shader::DeferredCompute {
     let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(entry),
         bind_group_layouts: &[Some(layout)],
         immediate_size: 0,
     });
-    helio_core::shader::create_compute_pipeline(
+    helio_core::shader::create_compute_pipeline_deferred(
         &device,
         wgpu::ComputePipelineDescriptor {
             label: Some(entry),
