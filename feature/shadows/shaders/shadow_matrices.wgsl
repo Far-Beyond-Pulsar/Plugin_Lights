@@ -128,6 +128,13 @@ fn compute_spot_matrix(light_idx: u32, position: vec3f, direction: vec3f, range:
 
 // ── Directional light cascades (CSM with sphere-fit + texel snap) ─────────────
 
+/// `radius` rounded up to the lattice of eight steps an octave (`2^(k/8)`).
+fn stable_radius(radius: f32) -> f32 {
+    let r = max(radius, 1.0e-3);
+    let step = exp2(floor(log2(r)) - 3.0);
+    return ceil(r / step) * step;
+}
+
 fn compute_directional_cascades(light_idx: u32, direction: vec3f) {
     let base = lights[light_idx].shadow_index;
     let dir = normalize(direction);
@@ -149,9 +156,15 @@ fn compute_directional_cascades(light_idx: u32, direction: vec3f) {
     // by w would give inf/NaN. A finite far plane inside the last split, from
     // a caller's own projection, is still honoured.
     let eye = cameras[0].position_near.xyz;
+    // The view's TAA jitter translates its projection by `jitter_frame.xy` in
+    // NDC, and `view_proj_inv` undoes the jittered projection. The cascades fit
+    // the unjittered frustum: a different sub-pixel offset every frame would
+    // move the fitted sphere, and with it every cascade's matrix, so a camera
+    // that stands still would redraw its cascades every frame.
+    let jitter = cameras[0].jitter_frame.xy;
     var world: array<vec3f, 8>;
     for (var i = 0u; i < 8u; i++) {
-        let v = cameras[0].view_proj_inv * ndc[i];
+        let v = cameras[0].view_proj_inv * vec4f(ndc[i].xy + jitter, ndc[i].zw);
         if i < 4u {
             world[i] = v.xyz / v.w;
         } else {
@@ -199,9 +212,14 @@ fn compute_directional_cascades(light_idx: u32, direction: vec3f) {
             radius = max(radius, length(cc[i] - centroid));
         }
 
-        // Snap radius to texel boundaries
-        let texel_size = (2.0 * radius) / f32(max(shadow_matrices[base + cascade_idx].policy.z, 128u));
-        let radius_snap = ceil(radius / texel_size) * texel_size;
+        // The cascade covers a radius from a lattice of eight steps an octave,
+        // so the fit (and the texel size the centroid snaps to below) only
+        // changes when the frustum slice has grown or shrunk by a step, not
+        // with every sub-texel wobble of the camera: with the camera still the
+        // matrix is the same bits frame after frame, and the cached cascade is
+        // reused. Costs at most one step (12.5 percent) of resolution.
+        let radius_snap = stable_radius(radius);
+        let texel_size = (2.0 * radius_snap) / f32(max(shadow_matrices[base + cascade_idx].policy.z, 128u));
 
         // Texel-snapped light view
         let light_view_raw = mat4_look_at_rh(centroid - dir * SCENE_DEPTH, centroid, up);
@@ -215,7 +233,12 @@ fn compute_directional_cascades(light_idx: u32, direction: vec3f) {
         let right_ws = normalize(vec3f(light_view_raw[0][0], light_view_raw[1][0], light_view_raw[2][0]));
         let up_ws    = normalize(vec3f(light_view_raw[0][1], light_view_raw[1][1], light_view_raw[2][1]));
         let snap_offset = right_ws * (snapped_x - centroid_ls.x) + up_ws * (snapped_y - centroid_ls.y);
-        let stable_centroid = centroid + snap_offset;
+        // Along the light's direction the eye is snapped too: it sets the depth
+        // every texel stores, so an eye that followed the camera exactly would
+        // change the whole cascade's contents (and matrix) with any movement.
+        let along = dot(dir, centroid);
+        let snapped_along = round(along / snap) * snap;
+        let stable_centroid = centroid + snap_offset + dir * (snapped_along - along);
 
         let light_view = mat4_look_at_rh(stable_centroid - dir * SCENE_DEPTH, stable_centroid, up);
         let proj = mat4_orthographic_rh(-radius_snap, radius_snap, -radius_snap, radius_snap, 0.1, SCENE_DEPTH * 2.0);
