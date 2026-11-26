@@ -15,12 +15,12 @@ use helio_scene_join::{
 /// A `GpuLight` in light space, bit 31 of its `_pad` word carrying `enabled`.
 pub const LIGHT_SOURCE_ROW_BYTES: u64 = 128;
 const LIGHT_ROW_BYTES: u64 = 128;
-const BILLBOARD_ROW_BYTES: u64 = std::mem::size_of::<helio_pass_billboard::BillboardRow>() as u64;
+const BILLBOARD_ROW_BYTES: u64 = std::mem::size_of::<view_icons_api::BillboardRow>() as u64;
 const WORKGROUP: u32 = 64;
 
 pub const LIGHTS_KEY: BufferKey = BufferKey::of(crate::LIGHT_LIST);
 pub const DIRECTIONAL_LIGHTS_KEY: BufferKey = BufferKey::of(crate::DIRECTIONAL_LIGHTS);
-pub const BILLBOARDS_KEY: BufferKey = helio_pass_billboard::BILLBOARD_INSTANCES.key();
+pub const BILLBOARDS_KEY: BufferKey = view_icons_api::BILLBOARD_INSTANCES.key();
 
 /// The light join's shader as compiled (shader validation without a device).
 pub fn light_join_source() -> String {

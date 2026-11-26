@@ -52,7 +52,7 @@ fn light_icons_pick_the_visible_extent_at_any_distance() {
         let mut world = World::new();
         let entity = spawn_light(&mut world, [depth * 0.3, 0.0, -depth], [0.01; 3]);
         let interaction = SceneInteraction::default();
-        let dimensions = Vec2::from_array(helio_pass_billboard::feature::light_icon_dimensions());
+        let dimensions = Vec2::from_array(lights_plugin::lights_component::light_icon_dimensions());
         let half_width = 0.02 * depth as f32 * dimensions.x / dimensions.max_element();
         let ray = Vec3::new(depth as f32 * 0.3 + half_width * 0.9, 0.0, -depth as f32);
         assert_eq!(

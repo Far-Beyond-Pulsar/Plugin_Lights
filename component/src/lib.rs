@@ -84,7 +84,8 @@ pub fn register_columns(
 }
 
 /// The lights' features: the shadow views, the light binning, deferred and
-/// light-field lighting, and the billboards (the editor's light icons).
+/// light-field lighting. (The editor's light icons are drawn by the viewport
+/// icon plugin: [`LIGHT_ICON_PNG`].)
 pub fn render_features() -> helio_feature_api::FeatureSet {
     helio_feature_api::FeatureSet::new()
         .with(helio_pass_shadow_matrix::ShadowViewsFeature)
@@ -92,12 +93,23 @@ pub fn render_features() -> helio_feature_api::FeatureSet {
         .with(helio_pass_light_sampler::LightSamplerFeature)
         .with(helio_pass_deferred_light::DeferredLightingFeature)
         .with(helio_pass_hlfs::HlfsFeature)
-        .with(helio_pass_billboard::BillboardFeature)
 }
 
-/// The light join's billboard size: the quad's larger side, in world units
-/// per unit of view depth (`scene_join_lights.wgsl`'s billboard scale).
-const ICON_SCREEN_SIZE: f32 = 0.04;
+/// The editor's light icon.
+pub const LIGHT_ICON_PNG: &[u8] = include_bytes!("../spotlight.png");
+
+/// The buffer the lights' join publishes their icons under.
+pub const LIGHT_ICON_ROWS: &str = view_icons_api::BILLBOARD_INSTANCES.name();
+
+/// The light icon's pixel size, which fits it to its bounds.
+pub fn light_icon_dimensions() -> [f32; 2] {
+    static DIMENSIONS: std::sync::OnceLock<[f32; 2]> = std::sync::OnceLock::new();
+    *DIMENSIONS.get_or_init(|| {
+        image::load_from_memory(LIGHT_ICON_PNG)
+            .map(|image| [image.width() as f32, image.height() as f32])
+            .unwrap_or([1.0, 1.0])
+    })
+}
 
 /// A light object's editor icon (its billboard, which picking tests): the
 /// light image's aspect at the join's billboard size.
@@ -106,8 +118,8 @@ pub fn light_icon(world: &World, object: Entity) -> Option<[f32; 2]> {
         .into_iter()
         .any(|instance| world.get::<LightComponent>(instance).is_some())
         .then(|| {
-            let [width, height] = helio_pass_billboard::feature::light_icon_dimensions();
-            let scale = ICON_SCREEN_SIZE / width.max(height);
+            let [width, height] = light_icon_dimensions();
+            let scale = view_icons_api::ICON_SCREEN_SIZE / width.max(height);
             [width * scale, height * scale]
         })
 }

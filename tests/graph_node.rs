@@ -38,12 +38,6 @@ const NODES: &[(&str, &str, &str, bool)] = &[
         true,
     ),
     ("helio.pass.hlfs", "helio.hlfs", "HlfsPass", true),
-    (
-        "helio.pass.billboard",
-        "helio.billboards",
-        "BillboardPass",
-        true,
-    ),
 ];
 
 /// A pipeline the plugin's nodes are placed in.
@@ -65,24 +59,14 @@ const CASES: &[Case] = &[
             "helio.pass.shadow_matrix",
             "helio.pass.light_cull",
             "helio.pass.deferred_light",
-            "helio.pass.billboard",
         ],
-        passes: &[
-            "ShadowMatrixPass",
-            "LightCullPass",
-            "DeferredLightPass",
-            "BillboardPass",
-        ],
+        passes: &["ShadowMatrixPass", "LightCullPass", "DeferredLightPass"],
     },
     Case {
         name: "hlfs",
         preset: hlfs,
-        kinds: &[
-            "helio.pass.shadow_matrix",
-            "helio.pass.hlfs",
-            "helio.pass.billboard",
-        ],
-        passes: &["ShadowMatrixPass", "HlfsPass", "BillboardPass"],
+        kinds: &["helio.pass.shadow_matrix", "helio.pass.hlfs"],
+        passes: &["ShadowMatrixPass", "HlfsPass"],
     },
 ];
 

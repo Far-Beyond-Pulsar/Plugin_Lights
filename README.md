@@ -21,10 +21,9 @@ draw phases and api crates.
 |---|---|---|
 | `helio-light-api` | `api/` | The lights' public contract: the light list and its directional light, the screen-tile binning, the shadow views' matrices, budget, settings and dirty flags, the sun's occlusion pages, and their WGSL (the light row, the forward light function, the shadow atlas). The one crate another kind reads a light concept from. |
 | `lights_plugin` | `./` (`src/`) | The plugin's root crate: the one place it registers everything it contributes (`src/runtime.rs`; `src/editor.rs` with the `editor` feature). Its integration tests are in `tests/`. |
-| `lights_component` | `component/` | Lights (pulsar.lights): the light and reflection capture components, the light's source row, its join, its editor icon and the plugin's Helio feature set (shadow views, light binning, deferred and light-field lighting, billboards) and settings |
+| `lights_component` | `component/` | Lights (pulsar.lights): the light and reflection capture components, the light's source row, its join, its editor icon and the plugin's Helio feature set (shadow views, light binning, deferred and light-field lighting) and settings. Its editor icon image is drawn by the viewport icons plugin |
 | `lights_editor` | `editor/` | Lights (pulsar.lights): the editor crate -- the level editor's light icon, Create menu lights, environment mixer entries and starter setups |
 | `lights-examples` | `examples/` | Lights (pulsar.lights): the examples whose subject is the lights (IES profiles, many lights, light icons), over Helio's presets with the meshes' and the lights' features |
-| `helio-pass-billboard` | `feature/billboard/` | Helio pass: camera-facing billboards (light icons) in the overlay phase |
 | `helio-pass-light-cull` | `feature/cull/` | Helio render pass: tiled light culling (Forward+ style) |
 | `helio-pass-light-sampler` | `feature/sampler/` | Helio pass: the lights' sampler behind the frame's direct-light contract (`rays::light_samples`): a world-space light grid rebuilt when the lights or the eye's cell change, and for each point a consumer asks about (GI's probe hits, the reference path tracer's bounces) one light chosen by its unshadowed contribution, evaluated by `light_incidence` |
 | `helio-pass-deferred-light` | `feature/deferred/` | Helio pass: the deferred lighting model, over the frame's lighting inputs |
@@ -62,7 +61,6 @@ Every pass the plugin's feature adds to the default pipeline is a node of `.rend
 | `helio.pass.light_cull` | Lighting: Tile Light Binning | Visibility slot, order 100 (builds nothing under light-field shading) |
 | `helio.pass.deferred_light` | Lighting: Deferred | the deferred model's point `lighting.model.deferred` |
 | `helio.pass.hlfs` | Lighting: HLFS | the light-field model's point `lighting.model.light_field` |
-| `helio.pass.billboard` | Overlay: Billboards | Overlay phase drawer, order 50 |
 
 ## Building and testing
 
@@ -74,8 +72,8 @@ only inside a Pulsar-Native checkout:
 ```bash
 git clone --recursive https://github.com/Far-Beyond-Pulsar/Pulsar-Native
 cd Pulsar-Native
-cargo check -p helio-light-api -p lights_component -p lights_editor -p lights_plugin --features lights_plugin/editor -p lights-examples -p helio-pass-billboard -p helio-pass-light-cull -p helio-pass-light-sampler -p helio-pass-deferred-light -p helio-pass-hlfs -p helio-pass-shadow-matrix -p helio-light-host --tests
-cargo test -p helio-light-api -p lights_component -p lights_plugin -p helio-pass-billboard -p helio-pass-light-cull -p helio-pass-light-sampler -p helio-pass-deferred-light -p helio-pass-hlfs -p helio-pass-shadow-matrix
+cargo check -p helio-light-api -p lights_component -p lights_editor -p lights_plugin --features lights_plugin/editor -p lights-examples -p helio-pass-light-cull -p helio-pass-light-sampler -p helio-pass-deferred-light -p helio-pass-hlfs -p helio-pass-shadow-matrix -p helio-light-host --tests
+cargo test -p helio-light-api -p lights_component -p lights_plugin -p helio-pass-light-cull -p helio-pass-light-sampler -p helio-pass-deferred-light -p helio-pass-hlfs -p helio-pass-shadow-matrix
 ```
 
 Suites that render real frames need a GPU; CI leaves them out by name

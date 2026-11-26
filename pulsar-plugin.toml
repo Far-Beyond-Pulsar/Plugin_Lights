@@ -12,7 +12,7 @@ provides = [
 ]
 # Nothing: how a surface reflects light is the frame's BSDF.
 requires = [
-  { id = "pulsar.portals.api", optional = true },
+  { id = "pulsar.view_icons.api", optional = true },
 ]
 
 # The plugin's root crate (the package in this directory): the one place it

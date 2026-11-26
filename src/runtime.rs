@@ -4,7 +4,9 @@
 use engine_backend::scene::ObjectJoinRegistration;
 use engine_backend::scene::{ClassSpec, ComponentsBuilder};
 use engine_backend::subsystems::render::RenderFeatureRegistration;
-use engine_backend::subsystems::render::helio_renderer::ViewIconRegistration;
+use engine_backend::subsystems::render::helio_renderer::{
+    ViewIconImageRegistration, ViewIconRegistration,
+};
 use helio_component::components::MovabilityRegistration;
 use lights_component::{LightComponent, ReflectionCaptureComponent};
 use pulsar_settings::project::rendering::SettingsGroupRegistration;
@@ -45,6 +47,14 @@ pub(crate) fn build(p: &mut pulsar_plugins::PluginBuilder) {
         derivation: lights_component::light_join,
     });
 
+    // The light icons' image, drawn over the rows the lights' join publishes.
+    p.add(ViewIconImageRegistration {
+        origin: p.origin(),
+        name: "lights.icon",
+        rows: lights_component::LIGHT_ICON_ROWS,
+        png: lights_component::LIGHT_ICON_PNG,
+    });
+
     // A light object's billboard, which picking tests instead of a box.
     p.add(ViewIconRegistration {
         origin: p.origin(),
@@ -78,7 +88,6 @@ mod tests {
             "helio.lights.binning",
             "helio.lights.deferred",
             "helio.hlfs",
-            "helio.billboards",
         ] {
             assert!(ids.contains(&id), "{id} missing from {ids:?}");
         }

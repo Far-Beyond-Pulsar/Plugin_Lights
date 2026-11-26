@@ -39,7 +39,8 @@ helio = { workspace = true }
 helio-feature-api = { workspace = true }
 helio-scene-join = { workspace = true }
 helio-light-api = { workspace = true }
-helio-pass-billboard = { workspace = true }
+view-icons-api = { workspace = true }
+image = { workspace = true, features = ["png"] }
 helio-pass-deferred-light = { workspace = true }
 helio-pass-hlfs = { workspace = true }
 helio-pass-light-cull = { workspace = true }

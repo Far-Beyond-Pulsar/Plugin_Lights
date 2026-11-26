@@ -26,7 +26,12 @@ pub fn features() -> helio_feature_api::FeatureSet {
         .with(helio_pass_light_sampler::LightSamplerFeature)
         .with(helio_pass_deferred_light::DeferredLightingFeature)
         .with(helio_pass_hlfs::HlfsFeature)
-        .with(helio_pass_billboard::BillboardFeature)
+        .with(helio_pass_billboard::BillboardFeature::new(vec![
+            helio_pass_billboard::IconImage {
+                rows: helio_pass_billboard::BILLBOARD_INSTANCES.name(),
+                png: include_bytes!("../../component/spotlight.png"),
+            },
+        ]))
 }
 
 /// Registers the light list's column with a store before its mirror is
