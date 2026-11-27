@@ -3,7 +3,7 @@ name = "helio-pass-light-sampler"
 version = "0.1.0"
 edition = "2021"
 description = "Helio pass: the lights' sampler behind the frame's direct-light contract (a world-space light grid, one light a point by its contribution)"
-license = "MIT OR Apache-2.0"
+license = "MPL-2.0"
 
 [dependencies]
 helio-light-api = { workspace = true }

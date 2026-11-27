@@ -3,7 +3,7 @@ name = "helio-pass-hlfs"
 version = "0.1.0"
 edition = "2021"
 description = "Helio render pass: Hierarchical Light-Field Sampling (HLFS)"
-license = "MIT OR Apache-2.0"
+license = "MPL-2.0"
 
 [dependencies]
 helio-light-api = { workspace = true }

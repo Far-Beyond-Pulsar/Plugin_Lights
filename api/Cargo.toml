@@ -3,7 +3,7 @@ name = "helio-light-api"
 version = "0.1.0"
 edition = "2021"
 description = "The lights' public contract: the light list and its directional light, the screen-tile binning, the shadow views' matrices, budget, settings and dirty flags, the sun's occlusion pages, and their WGSL (the light row, the forward light function, the shadow atlas). The one crate another kind reads a light concept from."
-license = "MIT OR Apache-2.0"
+license = "MPL-2.0"
 
 [features]
 default = ["gpu"]
