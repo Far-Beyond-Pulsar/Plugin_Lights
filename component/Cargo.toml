@@ -14,8 +14,12 @@ name = "lights_component"
 # `#[derive(SceneStore)]` checks the deriving crate's own `gpu` feature.
 default = ["gpu"]
 gpu = []
+# The asset pickers of this crate's path properties.
+editor = ["dep:gpui-ce", "dep:ui_common", "pulsar_reflection/prims-gpui"]
 
 [dependencies]
+gpui-ce = { workspace = true, optional = true }
+ui_common = { workspace = true, optional = true }
 # The directional light's local direction (`advanced.rotation_offset`).
 glam = { workspace = true }
 engine_class_derive = { workspace = true }

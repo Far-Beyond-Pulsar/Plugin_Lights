@@ -14,7 +14,7 @@ dll = ["editor", "dep:plugin_editor_api", "plugin_editor_api/editor", "plugin_ed
 # The editor's registrations (the hierarchy icon, the Create menu's lights,
 # the environment mixer's entries and starter setups) and the crates they
 # need. A game links the root without it, so it takes no editor dependency.
-editor = ["dep:lights_editor", "dep:ui_level_editor"]
+editor = ["dep:lights_editor", "dep:ui_level_editor", "lights_component/editor"]
 
 [dependencies]
 # The plugin library's editor plugin entry point (feature `dll`).
