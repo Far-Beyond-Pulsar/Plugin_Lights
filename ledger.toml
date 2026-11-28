@@ -158,16 +158,6 @@ status = "verified"
 # ── Render pass crates ──────────────────────────────────────────
 
 [[pass]]
-crate = "helio-pass-billboard"
-in_default_graph = false
-reads = ["billboard_instances"]
-owner = "helio-presets (mapping); helio-pass-billboard (algorithm)"
-disposition = "runs in the editor graph, but nothing authored feeds it: sprites/billboards (Phase 4)"
-target_contract = "Phase 6; 03-gpu-reflection-and-rendering.md"
-test = "tracked in #1060; plugins/installed/tests/render_acceptance.rs (every_pass_of_the_editor_graph_runs)"
-status = "unfinished"
-
-[[pass]]
 crate = "helio-pass-deferred-light"
 in_default_graph = false
 reads = ["environment_probes", "scene_lights"]
@@ -230,16 +220,6 @@ test = "plugins/installed/tests/level_editor.rs"
 status = "verified"
 
 [[buffer]]
-key = "billboard_instances"
-producers = ["BillboardComponent"]
-consumers = ["helio-pass-billboard", "helio-pass-light-cull"]
-owner = "helio-scene-derivations scene join (editor mode)"
-disposition = "keep: editor light icons are a GPU output of the join over authored light rows (Phase 2); authored 2D sprites are SpriteComponent, drawn by the sprite overlay, not billboards (#1060)"
-target_contract = "Phase 2; 03-gpu-reflection-and-rendering.md"
-test = "crates/renderer/helio/crates/helio-presets/tests/scene_join.rs"
-status = "verified"
-
-[[buffer]]
 key = "environment_probes"
 producers = ["ReflectionCaptureComponent"]
 consumers = ["helio-pass-deferred-light"]
@@ -283,20 +263,6 @@ releases_var_len = false
 registered = true
 writer = "the standalone host's scene (helio_snapshot's thumbnail World); the engine joins these rows from its own components"
 owner = "helio_light_api::host_rows"
-disposition = "standalone-host row: linked into the editor only by the meshes editor's thumbnail renderer (helio_snapshot, which renders through Helio's standalone host, helio-mesh-host and helio-light-host); written only in the snapshot's own offscreen World, never in a level's"
-target_contract = "Phase 4; plugin-migration.md (host rows for standalone hosts)"
-test = "plugins/vendor/meshes/snapshot (thumbnails); plugins/vendor/meshes/editor thumbnails"
-status = "verified"
-
-[[schema]]
-type = "BillboardComponent"
-path = "helio_pass_billboard::host_rows::BillboardComponent"
-buffers = ["billboard_instances"]
-clears_on_remove = true
-releases_var_len = false
-registered = false
-writer = "the standalone host's scene (helio_snapshot's thumbnail World); the engine joins these rows from its own components"
-owner = "helio_pass_billboard::host_rows"
 disposition = "standalone-host row: linked into the editor only by the meshes editor's thumbnail renderer (helio_snapshot, which renders through Helio's standalone host, helio-mesh-host and helio-light-host); written only in the snapshot's own offscreen World, never in a level's"
 target_contract = "Phase 4; plugin-migration.md (host rows for standalone hosts)"
 test = "plugins/vendor/meshes/snapshot (thumbnails); plugins/vendor/meshes/editor thumbnails"
